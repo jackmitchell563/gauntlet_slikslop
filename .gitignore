@@ -1,0 +1,5 @@
+.env
+.cursorrules
+.env*
+*.md
+!docs/components/*
