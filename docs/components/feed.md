@@ -2,7 +2,13 @@
 
 ## Overview
 
-The `FeedService.swift` and `FeedViewController.swift` files manage different content feeds: the AI-driven For You Page (FYP), Following Feed, and Trending Section. They handle fetching, rendering, and personalizing video content using UIKit's efficient video playback and scrolling capabilities.
+The `FeedService.swift` and `FeedViewController.swift` files manage different content feeds: the AI-driven For You Page (FYP), Following Feed, and Trending Section. They handle fetching, rendering, and personalizing video content using UIKit's efficient video playback and scrolling capabilities. The decision to use UIKit for the feed system is performance-driven, particularly for:
+- Optimal video playback performance
+- Efficient memory management for infinite scrolling
+- Better control over video thumbnail loading and caching
+- Superior cell reuse for smooth scrolling performance
+
+While the app uses SwiftUI for simpler views, the feed system requires UIKit's performance capabilities for a smooth user experience.
 
 ## Core Functions
 

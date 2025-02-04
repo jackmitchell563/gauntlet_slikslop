@@ -2,7 +2,13 @@
 
 ## Overview
 
-The `ProfileService.swift` and `ProfileViewController.swift` files manage user profiles, including display, interaction features, and profile data management. They handle both regular user profiles and AI-generated content creator profiles using UIKit's layout and image handling capabilities.
+The `ProfileView.swift` file manages user profiles, including display and interaction features. While the core video grid uses UIKit's collection view for performance, the profile interface is built with SwiftUI for:
+- Rapid development of static profile elements
+- Easy state management for profile data
+- Smooth animations for profile interactions
+- Simple implementation of dark mode and accessibility features
+
+The profile system demonstrates our mixed-approach architecture, using SwiftUI where it excels while leveraging UIKit for performance-critical video components.
 
 ## Core Functions
 
