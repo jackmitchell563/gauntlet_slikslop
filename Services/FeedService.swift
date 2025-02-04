@@ -91,6 +91,26 @@ class FeedService {
             ])
     }
     
+    /// Updates the comment count for a video
+    /// - Parameters:
+    ///   - videoId: The ID of the video to update
+    ///   - increment: Whether to increment (true) or decrement (false) the comment count
+    func updateCommentCount(videoId: String, increment: Bool) async throws {
+        try await db.collection(videosCollection).document(videoId)
+            .updateData([
+                "comments": FieldValue.increment(Int64(increment ? 1 : -1))
+            ])
+    }
+    
+    /// Updates the share count for a video
+    /// - Parameter videoId: The ID of the video that was shared
+    func incrementShareCount(videoId: String) async throws {
+        try await db.collection(videosCollection).document(videoId)
+            .updateData([
+                "shares": FieldValue.increment(Int64(1))
+            ])
+    }
+    
     /// Creates a test video document in Firestore
     /// - Returns: The created video's metadata
     func createTestVideo() async throws -> VideoMetadata {
@@ -102,7 +122,8 @@ class FeedService {
             "description": "Big Buck Bunny tells the story of a giant rabbit with a heart bigger than himself.",
             "tags": ["animation", "test", "nature"],
             "likes": 0,
-            "views": 0,
+            "comments": 0,
+            "shares": 0,
             "createdAt": Timestamp(date: Date())
         ]
         

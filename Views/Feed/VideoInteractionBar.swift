@@ -10,8 +10,10 @@ protocol VideoInteractionDelegate: AnyObject {
 class VideoInteractionBar: UIView {
     // MARK: - Properties
     
-    weak var delegate: VideoInteractionDelegate?
     private var videoId: String?
+    private(set) var isLiked: Bool = false
+    private var isProcessingLike: Bool = false
+    weak var delegate: VideoInteractionDelegate?
     
     // MARK: - UI Components
     
@@ -25,14 +27,19 @@ class VideoInteractionBar: UIView {
     }()
     
     private lazy var likeButton: UIButton = {
-        let button = createInteractionButton(icon: "heart.fill")
+        let button = UIButton()
+        button.setImage(UIImage(systemName: "heart.fill"), for: .normal)
+        button.tintColor = .white
         button.addTarget(self, action: #selector(handleLike), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isUserInteractionEnabled = true
         return button
     }()
     
     private lazy var commentButton: UIButton = {
         let button = createInteractionButton(icon: "bubble.right.fill")
         button.addTarget(self, action: #selector(handleComment), for: .touchUpInside)
+        button.isUserInteractionEnabled = true
         return button
     }()
     
@@ -50,6 +57,7 @@ class VideoInteractionBar: UIView {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isUserInteractionEnabled = true
         setupUI()
     }
     
@@ -100,6 +108,7 @@ class VideoInteractionBar: UIView {
     private func createButtonContainer(button: UIButton, label: UILabel) -> UIView {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        container.isUserInteractionEnabled = true
         
         container.addSubview(button)
         container.addSubview(label)
@@ -112,7 +121,10 @@ class VideoInteractionBar: UIView {
             
             label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 4),
             label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 70)
         ])
         
         return container
@@ -122,11 +134,42 @@ class VideoInteractionBar: UIView {
     
     /// Configures the interaction bar with video metadata
     /// - Parameters:
+    ///   - videoId: ID of the video
     ///   - likes: Number of likes
     ///   - comments: Number of comments
-    func configure(likes: Int, comments: Int) {
-        likeCountLabel.text = formatCount(likes)
-        commentCountLabel.text = formatCount(comments)
+    ///   - isLiked: Whether the video is liked by the current user
+    ///   - isProcessing: Whether a like operation is in progress
+    func configure(videoId: String, likes: Int, comments: Int, isLiked: Bool = false, isProcessing: Bool = false) {
+        print("📱 VideoInteractionBar - Configuring for video: \(videoId), likes: \(likes), isLiked: \(isLiked), isProcessing: \(isProcessing)")
+        self.videoId = videoId
+        self.isLiked = isLiked
+        self.isProcessingLike = isProcessing
+        updateLikeCount(likes)
+        updateCommentCount(comments)
+        updateLikeButtonAppearance()
+        
+        // Update button state
+        likeButton.isEnabled = !isProcessing
+        likeButton.alpha = isProcessing ? 0.5 : 1.0
+    }
+    
+    /// Updates the like count display
+    /// - Parameter count: New like count to display
+    func updateLikeCount(_ count: Int) {
+        print("📱 VideoInteractionBar - Updating like count to: \(count)")
+        likeCountLabel.text = formatCount(count)
+    }
+    
+    /// Updates the comment count display
+    /// - Parameter count: New comment count to display
+    func updateCommentCount(_ count: Int) {
+        commentCountLabel.text = formatCount(count)
+    }
+    
+    /// Updates the like button appearance based on like state
+    private func updateLikeButtonAppearance() {
+        print("📱 VideoInteractionBar - Updating button appearance, isLiked: \(isLiked)")
+        likeButton.tintColor = isLiked ? .systemPink : .white
     }
     
     private func formatCount(_ count: Int) -> String {
@@ -143,17 +186,33 @@ class VideoInteractionBar: UIView {
     // MARK: - Actions
     
     @objc private func handleLike() {
-        guard let videoId = videoId else { return }
-        delegate?.didTapLike(for: videoId)
+        guard let videoId = videoId, !isProcessingLike else {
+            print("📱 VideoInteractionBar - Like action blocked: \(isProcessingLike ? "Processing in progress" : "No video ID")")
+            return
+        }
+        
+        print("👆 VideoInteractionBar - Like button tapped for video: \(videoId)")
+        
+        // Set processing state and update UI
+        isProcessingLike = true
+        likeButton.isEnabled = false
+        
+        // Provide haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.prepare()
+        generator.impactOccurred()
         
         // Animate button
         UIView.animate(withDuration: 0.1, animations: {
-            self.likeButton.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+            self.likeButton.transform = CGAffineTransform(scaleX: 1.3, y: 1.3)
         }) { _ in
             UIView.animate(withDuration: 0.1) {
                 self.likeButton.transform = .identity
             }
         }
+        
+        print("📱 VideoInteractionBar - Delegating like tap to VideoPlayerCell")
+        delegate?.didTapLike(for: videoId)
     }
     
     @objc private func handleComment() {

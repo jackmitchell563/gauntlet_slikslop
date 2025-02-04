@@ -7,7 +7,7 @@ class AuthService {
     // MARK: - Properties
     
     static let shared = AuthService()
-    private let auth = Auth.auth()
+    private let auth = FirebaseConfig.getAuthInstance()
     private let db = FirebaseConfig.getFirestoreInstance()
     
     /// The current user's ID, if logged in
@@ -83,6 +83,7 @@ enum AuthError: Error {
     case invalidCredential
     case userNotFound
     case profileCreationFailed
+    case notInitialized
     
     var localizedDescription: String {
         switch self {
@@ -96,6 +97,8 @@ enum AuthError: Error {
             return "User not found"
         case .profileCreationFailed:
             return "Failed to create user profile"
+        case .notInitialized:
+            return "Authentication service not initialized"
         }
     }
 } 

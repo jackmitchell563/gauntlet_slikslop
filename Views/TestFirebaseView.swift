@@ -1,6 +1,45 @@
 import SwiftUI
 import FirebaseFirestore
 
+// Break out the video cell view into its own component
+private struct TestVideoCell: View {
+    let video: VideoMetadata
+    let onLike: () -> Void
+    let onView: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(video.title)
+                .font(.headline)
+            Text(video.description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            HStack {
+                Button(action: onLike) {
+                    HStack {
+                        Image(systemName: "heart.fill")
+                        Text("\(video.stats.likes)")
+                    }
+                }
+                .buttonStyle(.bordered)
+                
+                Button(action: onView) {
+                    HStack {
+                        Image(systemName: "eye.fill")
+                        Text("\(video.stats.comments)")
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("Created: \(video.formattedDate)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// Main view
 struct TestFirebaseView: View {
     @State private var testVideo: VideoMetadata?
     @State private var isLoading = false
@@ -12,22 +51,12 @@ struct TestFirebaseView: View {
     var body: some View {
         NavigationView {
             List {
+                // Test Actions Section
                 Section("Test Actions") {
-                    Button(action: createTestVideo) {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Create Test Video")
-                        }
-                    }
-                    
-                    Button(action: fetchVideos) {
-                        HStack {
-                            Image(systemName: "arrow.clockwise.circle.fill")
-                            Text("Fetch Videos")
-                        }
-                    }
+                    actionButtons
                 }
                 
+                // Error Section
                 if let error = errorMessage {
                     Section("Error") {
                         Text(error)
@@ -35,6 +64,7 @@ struct TestFirebaseView: View {
                     }
                 }
                 
+                // Loading Section
                 if isLoading {
                     Section {
                         ProgressView()
@@ -42,36 +72,14 @@ struct TestFirebaseView: View {
                     }
                 }
                 
+                // Videos Section
                 Section("Videos") {
                     ForEach(videos) { video in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(video.title)
-                                .font(.headline)
-                            Text(video.description)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            HStack {
-                                Button(action: { incrementLikes(for: video) }) {
-                                    HStack {
-                                        Image(systemName: "heart.fill")
-                                        Text("\(video.likes)")
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                
-                                Button(action: { incrementViews(for: video) }) {
-                                    HStack {
-                                        Image(systemName: "eye.fill")
-                                        Text("\(video.views)")
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            Text("Created: \(video.formattedDate)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 4)
+                        TestVideoCell(
+                            video: video,
+                            onLike: { incrementLikes(for: video) },
+                            onView: { incrementViews(for: video) }
+                        )
                     }
                 }
             }
@@ -79,8 +87,33 @@ struct TestFirebaseView: View {
             .refreshable {
                 await refreshData()
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
+            .preferredColorScheme(.light)
         }
     }
+    
+    // MARK: - View Components
+    
+    private var actionButtons: some View {
+        Group {
+            Button(action: createTestVideo) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Create Test Video")
+                }
+            }
+            
+            Button(action: fetchVideos) {
+                HStack {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                    Text("Fetch Videos")
+                }
+            }
+        }
+    }
+    
+    // MARK: - Actions
     
     private func createTestVideo() {
         isLoading = true

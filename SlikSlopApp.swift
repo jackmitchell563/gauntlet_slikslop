@@ -11,7 +11,8 @@ import FirebaseCore
 @main
 struct SlikSlopApp: App {
     init() {
-        FirebaseApp.configure()
+        // Initialize Firebase synchronously
+        FirebaseConfig.shared
     }
     
     var body: some Scene {

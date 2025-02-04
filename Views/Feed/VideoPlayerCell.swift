@@ -8,7 +8,7 @@ class VideoPlayerCell: UICollectionViewCell {
     // MARK: - Properties
     
     private var cancellables = Set<AnyCancellable>()
-    private(set) var metadata: VideoMetadata?
+    private var metadata: VideoMetadata?
     
     // MARK: - UI Components
     
@@ -57,34 +57,11 @@ class VideoPlayerCell: UICollectionViewCell {
         return label
     }()
     
-    private lazy var interactionStack: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 20
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        return stack
-    }()
-    
-    private lazy var likeButton: InteractionButton = {
-        let button = InteractionButton(type: .system)
-        button.setImage(UIImage(systemName: "heart.fill"), for: .normal)
-        button.addTarget(self, action: #selector(handleLike), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var commentButton: InteractionButton = {
-        let button = InteractionButton(type: .system)
-        button.setImage(UIImage(systemName: "bubble.right.fill"), for: .normal)
-        button.addTarget(self, action: #selector(handleComment), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var shareButton: InteractionButton = {
-        let button = InteractionButton(type: .system)
-        button.setImage(UIImage(systemName: "arrowshape.turn.up.right.fill"), for: .normal)
-        button.addTarget(self, action: #selector(handleShare), for: .touchUpInside)
-        return button
+    private lazy var interactionBar: VideoInteractionBar = {
+        let bar = VideoInteractionBar()
+        bar.delegate = self
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        return bar
     }()
     
     // MARK: - Lifecycle
@@ -121,12 +98,7 @@ class VideoPlayerCell: UICollectionViewCell {
         
         interactionOverlay.addSubview(titleLabel)
         interactionOverlay.addSubview(descriptionLabel)
-        interactionOverlay.addSubview(interactionStack)
-        
-        // Add interaction buttons
-        [likeButton, commentButton, shareButton].forEach {
-            interactionStack.addArrangedSubview($0)
-        }
+        interactionOverlay.addSubview(interactionBar)
         
         // Layout constraints
         NSLayoutConstraint.activate([
@@ -140,12 +112,12 @@ class VideoPlayerCell: UICollectionViewCell {
             interactionOverlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             interactionOverlay.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             
-            interactionStack.trailingAnchor.constraint(equalTo: interactionOverlay.trailingAnchor, constant: -16),
-            interactionStack.centerYAnchor.constraint(equalTo: interactionOverlay.centerYAnchor),
-            interactionStack.widthAnchor.constraint(equalToConstant: 60),
+            interactionBar.trailingAnchor.constraint(equalTo: interactionOverlay.trailingAnchor, constant: -16),
+            interactionBar.centerYAnchor.constraint(equalTo: interactionOverlay.centerYAnchor),
+            interactionBar.widthAnchor.constraint(equalToConstant: 60),
             
             titleLabel.leadingAnchor.constraint(equalTo: interactionOverlay.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: interactionStack.leadingAnchor, constant: -16),
+            titleLabel.trailingAnchor.constraint(equalTo: interactionBar.leadingAnchor, constant: -16),
             titleLabel.bottomAnchor.constraint(equalTo: descriptionLabel.topAnchor, constant: -8),
             
             descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -179,7 +151,39 @@ class VideoPlayerCell: UICollectionViewCell {
         
         titleLabel.text = metadata.title
         descriptionLabel.text = metadata.description
-        likeButton.setTitle("\(metadata.likes)", for: .normal)
+        
+        // Configure interaction bar initially without like state
+        interactionBar.configure(
+            videoId: metadata.id,
+            likes: metadata.stats.likes,
+            comments: metadata.stats.comments,
+            isLiked: false
+        )
+        
+        // Check like state asynchronously
+        Task {
+            do {
+                guard let userId = AuthService.shared.currentUserId else {
+                    print("❌ VideoPlayerCell - No authenticated user for like state check")
+                    return
+                }
+                
+                let isLiked = try await LikeService.shared.isVideoLiked(videoId: metadata.id, userId: userId)
+                print("📱 VideoPlayerCell - Retrieved like state for video: \(metadata.id), isLiked: \(isLiked)")
+                
+                // Update UI on main thread
+                await MainActor.run {
+                    interactionBar.configure(
+                        videoId: metadata.id,
+                        likes: metadata.stats.likes,
+                        comments: metadata.stats.comments,
+                        isLiked: isLiked
+                    )
+                }
+            } catch {
+                print("❌ VideoPlayerCell - Error checking like state: \(error)")
+            }
+        }
         
         playerView.configure(with: URL(string: metadata.url)!, isFirstCell: tag == 0)
         // Only pause if not the first video
@@ -200,24 +204,6 @@ class VideoPlayerCell: UICollectionViewCell {
     
     // MARK: - Interaction Handlers
     
-    @objc private func handleLike() {
-        guard let metadata = metadata else { return }
-        
-        Task {
-            do {
-                try await FeedService.shared.updateLikeCount(videoId: metadata.id, increment: true)
-                // Update UI optimistically
-                likeButton.setTitle("\(metadata.likes + 1)", for: .normal)
-            } catch {
-                print("Error updating like count: \(error)")
-            }
-        }
-    }
-    
-    @objc private func handleComment() {
-        // TODO: Show comments overlay
-    }
-    
     @objc private func handleShare() {
         guard let metadata = metadata else { return }
         
@@ -235,6 +221,7 @@ class VideoPlayerCell: UICollectionViewCell {
     private func cleanup() {
         playerView.cleanup()
         cancellables.removeAll()
+        metadata = nil
     }
 }
 
@@ -246,9 +233,84 @@ extension VideoPlayerCell: VideoPlayerViewDelegate {
     }
 }
 
+// MARK: - VideoInteractionDelegate
+
+extension VideoPlayerCell: VideoInteractionDelegate {
+    func didTapLike(for videoId: String) {
+        print("👆 VideoPlayerCell - Handling like tap for video: \(videoId)")
+        
+        guard var metadata = metadata else {
+            print("❌ VideoPlayerCell - No metadata available for like action")
+            return
+        }
+        
+        guard let userId = AuthService.shared.currentUserId else {
+            print("❌ VideoPlayerCell - No authenticated user for like action")
+            return
+        }
+        
+        print("📱 VideoPlayerCell - Starting like toggle process for user: \(userId)")
+        
+        // Show processing state immediately
+        interactionBar.configure(
+            videoId: videoId,
+            likes: metadata.stats.likes,
+            comments: metadata.stats.comments,
+            isLiked: !interactionBar.isLiked,  // Preview the new state
+            isProcessing: true
+        )
+        
+        Task {
+            do {
+                // Toggle like and get new state
+                print("📱 VideoPlayerCell - Calling LikeService to toggle like")
+                let isLiked = try await LikeService.shared.toggleLike(videoId: videoId, userId: userId)
+                print("📱 VideoPlayerCell - Like toggled successfully, new state: \(isLiked)")
+                
+                // Update local metadata
+                let newLikeCount = metadata.stats.likes + (isLiked ? 1 : -1)
+                print("📱 VideoPlayerCell - Updating like count from \(metadata.stats.likes) to \(newLikeCount)")
+                metadata.stats.likes = newLikeCount
+                self.metadata = metadata
+                
+                // Update UI
+                await MainActor.run {
+                    print("📱 VideoPlayerCell - Updating UI with new like state")
+                    interactionBar.configure(
+                        videoId: videoId,
+                        likes: newLikeCount,
+                        comments: metadata.stats.comments,
+                        isLiked: isLiked,
+                        isProcessing: false
+                    )
+                }
+            } catch {
+                print("❌ VideoPlayerCell - Error toggling like: \(error)")
+                // Reset UI on error
+                await MainActor.run {
+                    interactionBar.configure(
+                        videoId: videoId,
+                        likes: metadata.stats.likes,
+                        comments: metadata.stats.comments,
+                        isLiked: !interactionBar.isLiked,  // Revert to original state
+                        isProcessing: false
+                    )
+                }
+            }
+        }
+    }
+    
+    func didTapComment(for videoId: String) {
+        // TODO: Show comments overlay
+        print("Show comments for video: \(videoId)")
+    }
+}
+
 // MARK: - Helper Views
 
 class InteractionButton: UIButton {
+    private let spacing: CGFloat = 4
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupButton()
@@ -259,19 +321,20 @@ class InteractionButton: UIButton {
     }
     
     private func setupButton() {
+        var config = UIButton.Configuration.plain()
+        config.contentInsets = NSDirectionalEdgeInsets(
+            top: spacing,
+            leading: -imageView!.frame.size.width,
+            bottom: -imageView!.frame.size.height,
+            trailing: 0
+        )
+        configuration = config
+        
+        // Add basic styling
         tintColor = .white
-        titleLabel?.font = .systemFont(ofSize: 14)
+        configuration?.baseForegroundColor = .white
         
-        // Configure content
-        contentHorizontalAlignment = .center
-        contentVerticalAlignment = .center
-        
-        // Set content spacing
-        let spacing: CGFloat = 4
-        titleEdgeInsets = UIEdgeInsets(top: spacing, left: -imageView!.frame.size.width, bottom: -imageView!.frame.size.height, right: 0)
-        imageEdgeInsets = UIEdgeInsets(top: -(titleLabel!.frame.size.height + spacing), left: 0, bottom: 0, right: -titleLabel!.frame.size.width)
-        
-        // Set size
+        // Set size constraints
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 60),
             heightAnchor.constraint(equalToConstant: 60)
@@ -298,8 +361,8 @@ extension UIView {
 
 extension VideoPlayerCell: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // Don't handle taps on buttons
-        if touch.view is UIButton {
+        // Don't handle taps on the interaction bar or its subviews
+        if touch.view?.isDescendant(of: interactionBar) == true {
             return false
         }
         return true

@@ -1,6 +1,7 @@
 import UIKit
 import SwiftUI
 import Combine
+import FirebaseAuth
 
 /// Main view controller for the video feed
 class FeedViewController: UIViewController {
@@ -11,6 +12,8 @@ class FeedViewController: UIViewController {
     private let pageSize = 10
     private var isLoading = false
     private var cancellables = Set<AnyCancellable>()
+    private var isVisible = true
+    private var isScrolling = false
     
     // MARK: - UI Components
     
@@ -42,7 +45,88 @@ class FeedViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        loadInitialContent()
+        
+            // Create test user authentication if needed
+        Task {
+                do {
+                    if AuthService.shared.currentUserId == nil {
+                        print("🔐 FeedViewController - No authenticated user, creating test user")
+                    try await createTestUserIfNeeded()
+                    }
+                    
+                    // Initialize like service
+                    if let userId = AuthService.shared.currentUserId {
+                        print("🔐 FeedViewController - Initializing like service for user: \(userId)")
+                        try await LikeService.shared.initialize(userId: userId)
+                        
+                        // Load initial content with actual user ID
+                    await loadInitialContent()
+                    } else {
+                        print("❌ FeedViewController - Failed to authenticate test user")
+                    }
+                } catch {
+                    print("❌ FeedViewController - Error during authentication setup: \(error)")
+            }
+        }
+    }
+    
+    private func createTestUserIfNeeded() async throws {
+        // For testing purposes, create a test user in Firebase Auth
+        let testEmail = "test@slikslop.com"
+        let testPassword = "testpassword123"
+        
+        do {
+            print("🔐 FeedViewController - Creating test user with email: \(testEmail)")
+            let authResult = try await Auth.auth().createUser(withEmail: testEmail, password: testPassword)
+            
+            // Create user profile
+            try await AuthService.shared.createUserProfile(
+                user: authResult.user,
+                additionalData: [
+                    "isTestUser": true
+                ]
+            )
+            print("✅ FeedViewController - Test user created successfully")
+        } catch let error as NSError {
+            if error.code == AuthErrorCode.emailAlreadyInUse.rawValue {
+                // If user exists, try to sign in
+                print("🔐 FeedViewController - Test user exists, signing in")
+                try await Auth.auth().signIn(withEmail: testEmail, password: testPassword)
+                print("✅ FeedViewController - Test user signed in successfully")
+            } else {
+                throw error
+            }
+        }
+    }
+    
+    private func loadInitialContent() async {
+        await MainActor.run {
+            loadingIndicator.startAnimating()
+        }
+        
+        do {
+            guard let userId = AuthService.shared.currentUserId else {
+                print("❌ FeedViewController - No authenticated user for content loading")
+                return
+            }
+            
+            let initialVideos = try await FeedService.shared.fetchFYPVideos(userId: userId)
+            await MainActor.run {
+                self.videos = initialVideos
+                self.collectionView.reloadData()
+                self.loadingIndicator.stopAnimating()
+                
+                // Start playing the first video
+                if !initialVideos.isEmpty {
+                    self.playVisibleVideos()
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.loadingIndicator.stopAnimating()
+                print("❌ FeedViewController - Error loading videos: \(error)")
+            }
+        }
     }
     
     override var prefersStatusBarHidden: Bool {
@@ -68,31 +152,6 @@ class FeedViewController: UIViewController {
     }
     
     // MARK: - Data Loading
-    
-    private func loadInitialContent() {
-        loadingIndicator.startAnimating()
-        Task {
-            do {
-                let initialVideos = try await FeedService.shared.fetchFYPVideos(userId: "current_user") // TODO: Get actual user ID
-                await MainActor.run {
-                    self.videos = initialVideos
-                    self.collectionView.reloadData()
-                    self.loadingIndicator.stopAnimating()
-                    
-                    // Start playing the first video
-                    if !initialVideos.isEmpty {
-                        self.playVisibleVideos()
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.loadingIndicator.stopAnimating()
-                    // TODO: Show error state
-                    print("Error loading videos: \(error)")
-                }
-            }
-        }
-    }
     
     private func loadMoreContent() {
         guard !isLoading else { return }
@@ -164,6 +223,24 @@ class FeedViewController: UIViewController {
         
         return mostVisiblePair?.0
     }
+    
+    // MARK: - Tab Visibility
+    
+    func handleTabVisibilityChange(isVisible: Bool) {
+        self.isVisible = isVisible
+        if !isVisible {
+            // Pause all videos when leaving the tab
+            collectionView.visibleCells.forEach { cell in
+                if let videoCell = cell as? VideoPlayerCell {
+                    print("Pausing video at index: \(videoCell.tag) due to tab change")
+                    videoCell.pause()
+                }
+            }
+        } else {
+            // Resume playback of the most visible video when returning
+            playVisibleVideos()
+        }
+    }
 }
 
 // MARK: - UICollectionView DataSource & Delegate
@@ -210,12 +287,26 @@ extension FeedViewController: UICollectionViewDataSourcePrefetching {
 // MARK: - Scroll View Delegate
 
 extension FeedViewController {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        isScrolling = true
+    }
+    
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Update video playback during scrolling
-        playVisibleVideos()
+        // Only update playback if not actively scrolling
+        if !isScrolling {
+            playVisibleVideos()
+        }
+    }
+    
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        isScrolling = false
+        if !decelerate {
+            playVisibleVideos()
+        }
     }
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isScrolling = false
         // Ensure correct video is playing after scroll ends
         playVisibleVideos()
         
@@ -225,22 +316,20 @@ extension FeedViewController {
             loadMoreContent()
         }
     }
-    
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate {
-            playVisibleVideos()
-        }
-    }
 }
 
 // MARK: - SwiftUI Integration
 
 struct FeedView: UIViewControllerRepresentable {
+    @Binding var selectedTab: BottomNavigationBar.Tab
+    
     func makeUIViewController(context: Context) -> FeedViewController {
         return FeedViewController()
     }
     
     func updateUIViewController(_ uiViewController: FeedViewController, context: Context) {
-        // Update the view controller if needed
+        // Update visibility based on selected tab
+        let isVisible = selectedTab == .home
+        uiViewController.handleTabVisibilityChange(isVisible: isVisible)
     }
 } 

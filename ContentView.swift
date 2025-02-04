@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var feedType: TopNavigationBar.FeedType = .forYou
     @State private var selectedTab: BottomNavigationBar.Tab = .home
+    @State private var showingTestView = false
     
     var body: some View {
         ZStack {
@@ -17,7 +18,7 @@ struct ContentView: View {
             TabView(selection: $selectedTab) {
                 // Home Tab (Feed)
                 ZStack(alignment: .top) {
-                    FeedView()
+                    FeedView(selectedTab: $selectedTab)
                         .ignoresSafeArea()
                     
                     VStack(spacing: 0) {
@@ -37,18 +38,20 @@ struct ContentView: View {
                 .tag(BottomNavigationBar.Tab.home)
                 
                 // Create Tab
-                Color.white
+                Color.black
                     .overlay(
-                        Text("Create")
-                            .foregroundColor(.black)
+                        Button("Show Test Interface") {
+                            showingTestView = true
+                        }
+                        .foregroundColor(.white)
                     )
                     .tag(BottomNavigationBar.Tab.create)
                 
                 // Profile Tab
-                Color.white
+                Color.black
                     .overlay(
                         Text("Profile")
-                            .foregroundColor(.black)
+                            .foregroundColor(.white)
                     )
                     .tag(BottomNavigationBar.Tab.profile)
             }
@@ -62,6 +65,9 @@ struct ContentView: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingTestView) {
+            TestFirebaseView()
+        }
     }
 }
 
