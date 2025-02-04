@@ -7,29 +7,16 @@ class VideoPlayerCell: UICollectionViewCell {
     
     // MARK: - Properties
     
-    private var player: AVPlayer?
-    private var playerLayer: AVPlayerLayer?
-    private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
-    private var isVideoLoaded = false
-    
     private(set) var metadata: VideoMetadata?
     
     // MARK: - UI Components
     
-    private lazy var playerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .black
+    private lazy var playerView: VideoPlayerView = {
+        let view = VideoPlayerView()
+        view.delegate = self
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
-    }()
-    
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .large)
-        indicator.color = .white
-        indicator.hidesWhenStopped = true
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        return indicator
     }()
     
     private lazy var gradientOverlay: CAGradientLayer = {
@@ -48,6 +35,7 @@ class VideoPlayerCell: UICollectionViewCell {
         let view = UIView()
         view.backgroundColor = .clear
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = true
         return view
     }()
     
@@ -104,6 +92,7 @@ class VideoPlayerCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
+        setupGestures()
     }
     
     required init?(coder: NSCoder) {
@@ -112,7 +101,6 @@ class VideoPlayerCell: UICollectionViewCell {
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        playerLayer?.frame = playerView.bounds
         gradientOverlay.frame = bounds
     }
     
@@ -128,7 +116,6 @@ class VideoPlayerCell: UICollectionViewCell {
         
         // Add subviews
         contentView.addSubview(playerView)
-        playerView.addSubview(loadingIndicator)
         contentView.layer.addSublayer(gradientOverlay)
         contentView.addSubview(interactionOverlay)
         
@@ -147,9 +134,6 @@ class VideoPlayerCell: UICollectionViewCell {
             playerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             playerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             playerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            
-            loadingIndicator.centerXAnchor.constraint(equalTo: playerView.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: playerView.centerYAnchor),
             
             interactionOverlay.topAnchor.constraint(equalTo: contentView.topAnchor),
             interactionOverlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -170,6 +154,24 @@ class VideoPlayerCell: UICollectionViewCell {
         ])
     }
     
+    private func setupGestures() {
+        // Create a tap gesture recognizer for the cell's content
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleCellTap))
+        tapGesture.delegate = self
+        contentView.addGestureRecognizer(tapGesture)
+        
+        // Ensure buttons can still be tapped
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.requiresExclusiveTouchType = false
+    }
+    
+    @objc private func handleCellTap(_ gesture: UITapGestureRecognizer) {
+        // Forward the tap to the player view
+        if gesture.state == .ended {
+            playerView.handleTap()
+        }
+    }
+    
     // MARK: - Configuration
     
     func configure(with metadata: VideoMetadata) {
@@ -179,66 +181,21 @@ class VideoPlayerCell: UICollectionViewCell {
         descriptionLabel.text = metadata.description
         likeButton.setTitle("\(metadata.likes)", for: .normal)
         
-        loadingIndicator.startAnimating()
-        setupPlayer(with: URL(string: metadata.url)!)
-    }
-    
-    private func setupPlayer(with url: URL) {
-        // Clean up any existing player
-        cleanup()
-        
-        // Create new player and layer
-        let playerItem = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: playerItem)
-        playerLayer = AVPlayerLayer(player: player)
-        
-        // Configure player layer
-        playerLayer?.videoGravity = .resizeAspectFill
-        playerLayer?.frame = playerView.bounds
-        playerView.layer.addSublayer(playerLayer!)
-        
-        // Add observers
-        setupObservers(for: playerItem)
-    }
-    
-    private func setupObservers(for playerItem: AVPlayerItem) {
-        // Observe playback status
-        playerItem.publisher(for: \.status)
-            .sink { [weak self] status in
-                if status == .readyToPlay {
-                    self?.handleReadyToPlay()
-                }
-            }
-            .store(in: &cancellables)
-        
-        // Observe playback end
-        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-            .sink { [weak self] _ in
-                self?.handlePlaybackEnd()
-            }
-            .store(in: &cancellables)
+        playerView.configure(with: URL(string: metadata.url)!, isFirstCell: tag == 0)
+        // Only pause if not the first video
+        if tag != 0 {
+            playerView.pause()
+        }
     }
     
     // MARK: - Playback Control
     
     func play() {
-        player?.play()
+        playerView.play()
     }
     
     func pause() {
-        player?.pause()
-    }
-    
-    private func handleReadyToPlay() {
-        loadingIndicator.stopAnimating()
-        isVideoLoaded = true
-        play()
-    }
-    
-    private func handlePlaybackEnd() {
-        // Loop the video
-        player?.seek(to: .zero)
-        player?.play()
+        playerView.pause()
     }
     
     // MARK: - Interaction Handlers
@@ -276,12 +233,16 @@ class VideoPlayerCell: UICollectionViewCell {
     // MARK: - Cleanup
     
     private func cleanup() {
-        player?.pause()
-        playerLayer?.removeFromSuperlayer()
-        player = nil
-        playerLayer = nil
+        playerView.cleanup()
         cancellables.removeAll()
-        isVideoLoaded = false
+    }
+}
+
+// MARK: - VideoPlayerViewDelegate
+
+extension VideoPlayerCell: VideoPlayerViewDelegate {
+    func videoPlayerViewDidTapToTogglePlayback(_ view: VideoPlayerView) {
+        // No additional handling needed, the VideoPlayerView handles everything
     }
 }
 
@@ -330,5 +291,17 @@ extension UIView {
             }
         }
         return nil
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+
+extension VideoPlayerCell: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // Don't handle taps on buttons
+        if touch.view is UIButton {
+            return false
+        }
+        return true
     }
 } 

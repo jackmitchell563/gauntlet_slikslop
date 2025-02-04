@@ -5,8 +5,6 @@ import AVFoundation
 class VideoCell: UICollectionViewCell {
     // MARK: - Properties
     
-    private var player: AVPlayer?
-    private var playerLayer: AVPlayerLayer?
     private var videoMetadata: VideoMetadata?
     
     // Reuse identifier for the cell
@@ -14,9 +12,9 @@ class VideoCell: UICollectionViewCell {
     
     // MARK: - UI Components
     
-    private lazy var playerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .black
+    private lazy var playerView: VideoPlayerView = {
+        let view = VideoPlayerView()
+        view.delegate = self
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -67,66 +65,33 @@ class VideoCell: UICollectionViewCell {
     /// - Parameter metadata: The metadata for the video to be played
     func configure(with metadata: VideoMetadata) {
         self.videoMetadata = metadata
-        setupPlayer(with: URL(string: metadata.url)!)
+        playerView.configure(with: URL(string: metadata.url)!)
         interactionBar.configure(likes: metadata.likes, comments: 0) // TODO: Add comments count to metadata
-    }
-    
-    private func setupPlayer(with url: URL) {
-        // Clean up any existing player
-        cleanup()
-        
-        // Create new player and layer
-        let playerItem = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: playerItem)
-        playerLayer = AVPlayerLayer(player: player)
-        
-        // Configure player layer
-        playerLayer?.videoGravity = .resizeAspectFill
-        playerLayer?.frame = contentView.bounds
-        playerView.layer.addSublayer(playerLayer!)
-        
-        // Add observer for video end
-        NotificationCenter.default.addObserver(self,
-                                             selector: #selector(playerDidFinishPlaying),
-                                             name: .AVPlayerItemDidPlayToEndTime,
-                                             object: playerItem)
     }
     
     // MARK: - Playback Control
     
     /// Starts video playback
     func startPlayback() {
-        player?.play()
+        playerView.play()
     }
     
     /// Pauses video playback
     func pausePlayback() {
-        player?.pause()
-    }
-    
-    @objc private func playerDidFinishPlaying() {
-        // Loop the video
-        player?.seek(to: .zero)
-        player?.play()
+        playerView.pause()
     }
     
     // MARK: - Memory Management
     
     private func cleanup() {
-        // Remove notification observer
-        NotificationCenter.default.removeObserver(self)
-        
-        // Clean up player
-        player?.pause()
-        player = nil
-        
-        // Remove player layer
-        playerLayer?.removeFromSuperlayer()
-        playerLayer = nil
+        playerView.cleanup()
     }
-    
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer?.frame = contentView.bounds
+}
+
+// MARK: - VideoPlayerViewDelegate
+
+extension VideoCell: VideoPlayerViewDelegate {
+    func videoPlayerViewDidTapToTogglePlayback(_ view: VideoPlayerView) {
+        // Additional handling if needed
     }
 } 
