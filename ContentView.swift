@@ -12,8 +12,22 @@ struct ContentView: View {
     @State private var selectedTab: BottomNavigationBar.Tab = .home
     @State private var showingTestView = false
     @State private var selectedVideo: VideoMetadata?
+    @StateObject private var authState = AuthStateManager()
     
     var body: some View {
+        Group {
+            if authState.isAuthenticated {
+                mainContent
+            } else {
+                LoginView { success in
+                    // After successful login, the auth state will update automatically
+                    // through the Firebase auth state listener
+                }
+            }
+        }
+    }
+    
+    private var mainContent: some View {
         ZStack {
             // Main Content
             TabView(selection: $selectedTab) {

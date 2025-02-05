@@ -34,6 +34,12 @@ class AuthService {
         }
     }
     
+    /// Removes an auth state listener
+    /// - Parameter handle: The handle for the listener to remove
+    func removeAuthStateListener(_ handle: AuthStateDidChangeListenerHandle) {
+        auth.removeStateDidChangeListener(handle)
+    }
+    
     // MARK: - Sign In/Out
     
     /// Signs in with Google
@@ -42,6 +48,70 @@ class AuthService {
         // Note: This is a placeholder. Actual Google Sign-In implementation
         // requires GoogleSignIn SDK setup and configuration
         throw AuthError.notImplemented
+    }
+    
+    /// Signs up a new user with email and password
+    /// - Parameters:
+    ///   - email: The user's email address
+    ///   - password: The user's chosen password
+    /// - Returns: AuthDataResult containing the signed-up user
+    func signUp(email: String, password: String) async throws -> AuthDataResult {
+        do {
+            let result = try await auth.createUser(withEmail: email, password: password)
+            // Create user profile after successful sign up
+            try await createUserProfile(user: result.user)
+            return result
+        } catch let error as NSError {
+            switch error.code {
+            case AuthErrorCode.invalidEmail.rawValue:
+                throw AuthError.invalidEmail
+            case AuthErrorCode.emailAlreadyInUse.rawValue:
+                throw AuthError.emailInUse
+            case AuthErrorCode.weakPassword.rawValue:
+                throw AuthError.weakPassword
+            default:
+                throw error
+            }
+        }
+    }
+    
+    /// Signs in an existing user with email and password
+    /// - Parameters:
+    ///   - email: The user's email address
+    ///   - password: The user's password
+    /// - Returns: AuthDataResult containing the signed-in user
+    func signIn(email: String, password: String) async throws -> AuthDataResult {
+        do {
+            return try await auth.signIn(withEmail: email, password: password)
+        } catch let error as NSError {
+            switch error.code {
+            case AuthErrorCode.invalidEmail.rawValue:
+                throw AuthError.invalidEmail
+            case AuthErrorCode.wrongPassword.rawValue:
+                throw AuthError.wrongPassword
+            case AuthErrorCode.userNotFound.rawValue:
+                throw AuthError.userNotFound
+            default:
+                throw error
+            }
+        }
+    }
+    
+    /// Sends a password reset email to the specified email address
+    /// - Parameter email: The email address to send the reset link to
+    func resetPassword(email: String) async throws {
+        do {
+            try await auth.sendPasswordReset(withEmail: email)
+        } catch let error as NSError {
+            switch error.code {
+            case AuthErrorCode.invalidEmail.rawValue:
+                throw AuthError.invalidEmail
+            case AuthErrorCode.userNotFound.rawValue:
+                throw AuthError.userNotFound
+            default:
+                throw error
+            }
+        }
     }
     
     /// Signs out the current user
@@ -84,6 +154,10 @@ enum AuthError: Error {
     case userNotFound
     case profileCreationFailed
     case notInitialized
+    case weakPassword
+    case invalidEmail
+    case emailInUse
+    case wrongPassword
     
     var localizedDescription: String {
         switch self {
@@ -99,6 +173,14 @@ enum AuthError: Error {
             return "Failed to create user profile"
         case .notInitialized:
             return "Authentication service not initialized"
+        case .weakPassword:
+            return "Password must be at least 6 characters long"
+        case .invalidEmail:
+            return "Please enter a valid email address"
+        case .emailInUse:
+            return "An account with this email already exists"
+        case .wrongPassword:
+            return "Incorrect password"
         }
     }
 } 

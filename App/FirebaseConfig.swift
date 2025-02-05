@@ -9,21 +9,10 @@ class FirebaseConfig {
     /// Shared instance for singleton access
     static let shared = FirebaseConfig()
     
-    private var isInitialized = false
-    
     private init() {
-        // Core Firebase initialization must be synchronous
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        
-        // Configure Firestore settings
-        let settings = FirestoreSettings()
-        settings.isPersistenceEnabled = true
-        settings.cacheSizeBytes = FirestoreCacheSizeUnlimited
-            Firestore.firestore().settings = settings
-        
-            isInitialized = true
-        }
+        print("🔥 FirebaseConfig - Initializing Firebase")
+        FirebaseApp.configure()
+        print("✅ FirebaseConfig - Firebase configured successfully")
     }
     
     /// Returns the Firestore database instance

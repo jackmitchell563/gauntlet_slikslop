@@ -47,55 +47,17 @@ class FeedViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         
-            // Create test user authentication if needed
         Task {
-                do {
-                    if AuthService.shared.currentUserId == nil {
-                        print("🔐 FeedViewController - No authenticated user, creating test user")
-                    try await createTestUserIfNeeded()
-                    }
-                    
-                    // Initialize like service
-                    if let userId = AuthService.shared.currentUserId {
-                        print("🔐 FeedViewController - Initializing like service for user: \(userId)")
-                        try await LikeService.shared.initialize(userId: userId)
-                        
-                        // Load initial content with actual user ID
+            do {
+                if let userId = AuthService.shared.currentUserId {
+                    print("🔐 FeedViewController - Initializing like service for user: \(userId)")
+                    try await LikeService.shared.initialize(userId: userId)
                     await loadInitialContent()
-                    } else {
-                        print("❌ FeedViewController - Failed to authenticate test user")
-                    }
-                } catch {
-                    print("❌ FeedViewController - Error during authentication setup: \(error)")
-            }
-        }
-    }
-    
-    private func createTestUserIfNeeded() async throws {
-        // For testing purposes, create a test user in Firebase Auth
-        let testEmail = "test@slikslop.com"
-        let testPassword = "testpassword123"
-        
-        do {
-            print("🔐 FeedViewController - Creating test user with email: \(testEmail)")
-            let authResult = try await Auth.auth().createUser(withEmail: testEmail, password: testPassword)
-            
-            // Create user profile
-            try await AuthService.shared.createUserProfile(
-                user: authResult.user,
-                additionalData: [
-                    "isTestUser": true
-                ]
-            )
-            print("✅ FeedViewController - Test user created successfully")
-        } catch let error as NSError {
-            if error.code == AuthErrorCode.emailAlreadyInUse.rawValue {
-                // If user exists, try to sign in
-                print("🔐 FeedViewController - Test user exists, signing in")
-                try await Auth.auth().signIn(withEmail: testEmail, password: testPassword)
-                print("✅ FeedViewController - Test user signed in successfully")
-            } else {
-                throw error
+                } else {
+                    print("❌ FeedViewController - No authenticated user")
+                }
+            } catch {
+                print("❌ FeedViewController - Error during initialization: \(error)")
             }
         }
     }
@@ -170,7 +132,13 @@ class FeedViewController: UIViewController {
         
         Task {
             do {
-                let newVideos = try await FeedService.shared.fetchFYPVideos(userId: "current_user", limit: pageSize)
+                guard let userId = AuthService.shared.currentUserId else {
+                    print("❌ FeedViewController - No authenticated user for loading more content")
+                    isLoading = false
+                    return
+                }
+                
+                let newVideos = try await FeedService.shared.fetchFYPVideos(userId: userId, limit: pageSize)
                 await MainActor.run {
                     let startIndex = self.videos.count
                     self.videos.append(contentsOf: newVideos)
