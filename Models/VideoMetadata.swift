@@ -17,6 +17,8 @@ struct VideoMetadata: Identifiable {
     let url: String
     /// URL of the video thumbnail
     let thumbnail: String
+    /// URL of the creator's profile photo
+    let creatorPhotoURL: String?
     /// Title of the video
     let title: String
     /// Description of the video
@@ -41,6 +43,7 @@ struct VideoMetadata: Identifiable {
             creatorId: data["creatorId"] as? String ?? "",
             url: data["url"] as? String ?? "",
             thumbnail: data["thumbnail"] as? String ?? "",
+            creatorPhotoURL: data["creatorPhotoURL"] as? String,
             title: data["title"] as? String ?? "",
             description: data["description"] as? String ?? "",
             tags: data["tags"] as? [String] ?? [],
@@ -56,7 +59,7 @@ struct VideoMetadata: Identifiable {
     /// Converts the video metadata to a dictionary for Firestore
     /// - Returns: Dictionary representation of the video metadata
     func asDictionary() -> [String: Any] {
-        return [
+        var dict: [String: Any] = [
             "creatorId": creatorId,
             "url": url,
             "thumbnail": thumbnail,
@@ -68,6 +71,12 @@ struct VideoMetadata: Identifiable {
             "shares": stats.shares,
             "createdAt": createdAt
         ]
+        
+        if let photoURL = creatorPhotoURL {
+            dict["creatorPhotoURL"] = photoURL
+        }
+        
+        return dict
     }
     
     // Computed property for formatted date

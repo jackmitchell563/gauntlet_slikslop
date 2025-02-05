@@ -4,6 +4,7 @@ import UIKit
 protocol VideoInteractionDelegate: AnyObject {
     func didTapLike(for videoId: String)
     func didTapComment(for videoId: String)
+    func didTapCreatorProfile(for creatorId: String)
 }
 
 /// Custom view for video interaction buttons (likes, comments)
@@ -11,6 +12,8 @@ class VideoInteractionBar: UIView {
     // MARK: - Properties
     
     private var videoId: String?
+    private var creatorId: String?
+    private var creatorPhotoURL: String?
     private(set) var isLiked: Bool = false
     private var isProcessingLike: Bool = false
     weak var delegate: VideoInteractionDelegate?
@@ -20,19 +23,49 @@ class VideoInteractionBar: UIView {
     private lazy var stackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 16
+        stack.spacing = 8
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
     
+    private lazy var profileButton: UIButton = {
+        let button = UIButton()
+        button.layer.cornerRadius = 24  // Half of width/height
+        button.clipsToBounds = true
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.white.cgColor
+        button.addTarget(self, action: #selector(handleProfileTap), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowOpacity = 0.75
+        button.layer.shadowRadius = 2
+        button.isUserInteractionEnabled = true  // Explicitly enable user interaction
+        return button
+    }()
+    
+    private lazy var profileImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.isUserInteractionEnabled = false  // Disable user interaction on the image view
+        return iv
+    }()
+    
     private lazy var likeButton: UIButton = {
         let button = UIButton()
-        button.setImage(UIImage(systemName: "heart.fill"), for: .normal)
+        let config = UIImage.SymbolConfiguration(pointSize: 24)  // 16 * 1.5
+        button.setImage(UIImage(systemName: "heart.fill", withConfiguration: config), for: .normal)
         button.tintColor = .white
         button.addTarget(self, action: #selector(handleLike), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isUserInteractionEnabled = true
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowOpacity = 0.75
+        button.layer.shadowRadius = 2
         return button
     }()
     
@@ -40,6 +73,10 @@ class VideoInteractionBar: UIView {
         let button = createInteractionButton(icon: "bubble.right.fill")
         button.addTarget(self, action: #selector(handleComment), for: .touchUpInside)
         button.isUserInteractionEnabled = true
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowOpacity = 0.75
+        button.layer.shadowRadius = 2
         return button
     }()
     
@@ -52,6 +89,23 @@ class VideoInteractionBar: UIView {
         let label = createCountLabel()
         return label
     }()
+    
+    // MARK: - Image Cache
+    
+    class ImageCache {
+        static let shared = ImageCache()
+        private let cache = NSCache<NSString, UIImage>()
+        
+        private init() {}
+        
+        func setImage(_ image: UIImage, forKey key: String) {
+            cache.setObject(image, forKey: key as NSString)
+        }
+        
+        func getImage(forKey key: String) -> UIImage? {
+            return cache.object(forKey: key as NSString)
+        }
+    }
     
     // MARK: - Initialization
     
@@ -70,6 +124,11 @@ class VideoInteractionBar: UIView {
     private func setupUI() {
         addSubview(stackView)
         
+        // Add profile button and image
+        profileButton.addSubview(profileImageView)
+        let profileContainer = createButtonContainer(button: profileButton, label: nil)
+        stackView.addArrangedSubview(profileContainer)
+        
         // Add like button and count
         let likeContainer = createButtonContainer(button: likeButton, label: likeCountLabel)
         stackView.addArrangedSubview(likeContainer)
@@ -82,7 +141,13 @@ class VideoInteractionBar: UIView {
             stackView.topAnchor.constraint(equalTo: topAnchor),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            // Profile image constraints
+            profileImageView.topAnchor.constraint(equalTo: profileButton.topAnchor),
+            profileImageView.leadingAnchor.constraint(equalTo: profileButton.leadingAnchor),
+            profileImageView.trailingAnchor.constraint(equalTo: profileButton.trailingAnchor),
+            profileImageView.bottomAnchor.constraint(equalTo: profileButton.bottomAnchor)
         ])
     }
     
@@ -90,42 +155,68 @@ class VideoInteractionBar: UIView {
     
     private func createInteractionButton(icon: String) -> UIButton {
         let button = UIButton()
-        button.setImage(UIImage(systemName: icon), for: .normal)
+        let config = UIImage.SymbolConfiguration(pointSize: 24)  // 16 * 1.5
+        button.setImage(UIImage(systemName: icon, withConfiguration: config), for: .normal)
         button.tintColor = .white
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowOpacity = 1.0
+        button.layer.shadowRadius = 4
         return button
     }
     
     private func createCountLabel() -> UILabel {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: 18, weight: .medium)  // 12 * 1.5
         label.textColor = .white
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
+        // Add continuous shadow updates for dynamic text
+        label.layer.shadowPath = nil
+        label.layer.shouldRasterize = false
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOffset = CGSize(width: 0, height: 1)
+        label.layer.shadowOpacity = 1.0
+        label.layer.shadowRadius = 4
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.setContentHuggingPriority(.required, for: .vertical)
         return label
     }
     
-    private func createButtonContainer(button: UIButton, label: UILabel) -> UIView {
+    private func createButtonContainer(button: UIButton, label: UILabel?) -> UIView {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.isUserInteractionEnabled = true
         
         container.addSubview(button)
-        container.addSubview(label)
+        if let label = label {
+            container.addSubview(label)
+        }
         
-        NSLayoutConstraint.activate([
+        var constraints = [
             button.topAnchor.constraint(equalTo: container.topAnchor),
             button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            button.widthAnchor.constraint(equalToConstant: 44),
-            button.heightAnchor.constraint(equalToConstant: 44),
-            
-            label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 4),
-            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            
-            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 70)
+            button.widthAnchor.constraint(equalToConstant: 48),  // 32 * 1.5
+            button.heightAnchor.constraint(equalToConstant: 48)  // 32 * 1.5
+        ]
+        
+        if let label = label {
+            constraints.append(contentsOf: [
+                label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 0),
+                label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                label.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            ])
+        } else {
+            constraints.append(button.bottomAnchor.constraint(equalTo: container.bottomAnchor))
+        }
+        
+        constraints.append(contentsOf: [
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),  // 32 * 1.5
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 75)  // 50 * 1.5
         ])
+        
+        NSLayoutConstraint.activate(constraints)
         
         return container
     }
@@ -135,22 +226,38 @@ class VideoInteractionBar: UIView {
     /// Configures the interaction bar with video metadata
     /// - Parameters:
     ///   - videoId: ID of the video
+    ///   - creatorId: ID of the video creator
+    ///   - creatorPhotoURL: URL of the creator's profile photo
     ///   - likes: Number of likes
     ///   - comments: Number of comments
     ///   - isLiked: Whether the video is liked by the current user
     ///   - isProcessing: Whether a like operation is in progress
-    func configure(videoId: String, likes: Int, comments: Int, isLiked: Bool = false, isProcessing: Bool = false) {
-        print("📱 VideoInteractionBar - Configuring for video: \(videoId), likes: \(likes), isLiked: \(isLiked), isProcessing: \(isProcessing)")
+    func configure(
+        videoId: String,
+        creatorId: String,
+        creatorPhotoURL: String?,
+        likes: Int,
+        comments: Int,
+        isLiked: Bool = false,
+        isProcessing: Bool = false
+    ) {
+        print("📱 VideoInteractionBar - Configuring with creatorId: \(creatorId)")
         self.videoId = videoId
+        self.creatorId = creatorId
+        self.creatorPhotoURL = creatorPhotoURL
         self.isLiked = isLiked
         self.isProcessingLike = isProcessing
         updateLikeCount(likes)
         updateCommentCount(comments)
         updateLikeButtonAppearance()
+        loadProfileImage()
         
         // Update button state
         likeButton.isEnabled = !isProcessing
         likeButton.alpha = isProcessing ? 0.5 : 1.0
+        
+        // Verify profile button setup
+        print("🔍 VideoInteractionBar - Profile button state: isUserInteractionEnabled=\(profileButton.isUserInteractionEnabled), hasTarget=\(profileButton.allTargets.count > 0)")
     }
     
     /// Updates the like count display
@@ -181,6 +288,40 @@ class VideoInteractionBar: UIView {
         default:
             return String(format: "%.1fM", Double(count) / 1_000_000)
         }
+    }
+    
+    private func loadProfileImage() {
+        guard let urlString = creatorPhotoURL,
+              let url = URL(string: urlString) else {
+            setPlaceholderImage()
+            return
+        }
+        
+        if let cachedImage = ImageCache.shared.getImage(forKey: urlString) {
+            profileImageView.image = cachedImage
+            return
+        }
+        
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = UIImage(data: data) {
+                    await MainActor.run {
+                        ImageCache.shared.setImage(image, forKey: urlString)
+                        profileImageView.image = image
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    setPlaceholderImage()
+                }
+            }
+        }
+    }
+    
+    private func setPlaceholderImage() {
+        let config = UIImage.SymbolConfiguration(pointSize: 24)
+        profileImageView.image = UIImage(systemName: "person.circle.fill", withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal)
     }
     
     // MARK: - Actions
@@ -218,5 +359,15 @@ class VideoInteractionBar: UIView {
     @objc private func handleComment() {
         guard let videoId = videoId else { return }
         delegate?.didTapComment(for: videoId)
+    }
+    
+    @objc private func handleProfileTap() {
+        print("👆 VideoInteractionBar - Profile button tapped")
+        guard let creatorId = creatorId else {
+            print("❌ VideoInteractionBar - No creatorId available for profile tap")
+            return
+        }
+        print("📱 VideoInteractionBar - Delegating profile tap for creator: \(creatorId)")
+        delegate?.didTapCreatorProfile(for: creatorId)
     }
 } 

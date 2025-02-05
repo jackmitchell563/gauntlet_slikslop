@@ -30,14 +30,10 @@ struct UserProfile: Identifiable, Codable {
     static func from(_ document: DocumentSnapshot) throws -> UserProfile {
         let data = document.data() ?? [:]
         
-        guard let displayName = data["displayName"] as? String else {
-            throw DatabaseError.invalidData("Missing required field: displayName")
-        }
-        
         return UserProfile(
             id: document.documentID,
             email: data["email"] as? String,
-            displayName: displayName,
+            displayName: (data["displayName"] as? String) ?? "Unknown",
             photoURL: data["photoURL"] as? String,
             bio: data["bio"] as? String ?? "",
             createdAt: data["createdAt"] as? Timestamp ?? Timestamp(date: Date()),

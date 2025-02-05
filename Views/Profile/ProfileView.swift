@@ -48,7 +48,7 @@ struct ProfileView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         // Profile Header
-                        ProfileHeaderView(
+                        SwiftUIProfileHeaderView(
                             username: profile.displayName,
                             bio: profile.bio,
                             stats: ProfileStats(
@@ -166,7 +166,7 @@ struct ProfileView: View {
 
 // MARK: - Supporting Views
 
-private struct ProfileHeaderView: View {
+private struct SwiftUIProfileHeaderView: View {
     let username: String
     let bio: String
     let stats: ProfileStats

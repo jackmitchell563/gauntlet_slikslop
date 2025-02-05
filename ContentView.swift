@@ -18,8 +18,12 @@ struct ContentView: View {
             TabView(selection: $selectedTab) {
                 // Home Tab (Feed)
                 ZStack(alignment: .top) {
-                    FeedView(selectedTab: $selectedTab)
-                        .ignoresSafeArea()
+                    NavigationView {
+                        FeedView(selectedTab: $selectedTab)
+                            .ignoresSafeArea()
+                            .navigationBarHidden(true)
+                    }
+                    .navigationViewStyle(.stack)
                     
                     VStack(spacing: 0) {
                         // Top Navigation

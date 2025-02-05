@@ -152,9 +152,11 @@ class VideoPlayerCell: UICollectionViewCell {
         titleLabel.text = metadata.title
         descriptionLabel.text = metadata.description
         
-        // Configure interaction bar initially without like state
+        // Configure interaction bar with all necessary data
         interactionBar.configure(
             videoId: metadata.id,
+            creatorId: metadata.creatorId,
+            creatorPhotoURL: metadata.creatorPhotoURL,
             likes: metadata.stats.likes,
             comments: metadata.stats.comments,
             isLiked: false
@@ -175,6 +177,8 @@ class VideoPlayerCell: UICollectionViewCell {
                 await MainActor.run {
                     interactionBar.configure(
                         videoId: metadata.id,
+                        creatorId: metadata.creatorId,
+                        creatorPhotoURL: metadata.creatorPhotoURL,
                         likes: metadata.stats.likes,
                         comments: metadata.stats.comments,
                         isLiked: isLiked
@@ -254,6 +258,8 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         // Show processing state immediately
         interactionBar.configure(
             videoId: videoId,
+            creatorId: metadata.creatorId,
+            creatorPhotoURL: metadata.creatorPhotoURL,
             likes: metadata.stats.likes,
             comments: metadata.stats.comments,
             isLiked: !interactionBar.isLiked,  // Preview the new state
@@ -278,6 +284,8 @@ extension VideoPlayerCell: VideoInteractionDelegate {
                     print("📱 VideoPlayerCell - Updating UI with new like state")
                     interactionBar.configure(
                         videoId: videoId,
+                        creatorId: metadata.creatorId,
+                        creatorPhotoURL: metadata.creatorPhotoURL,
                         likes: newLikeCount,
                         comments: metadata.stats.comments,
                         isLiked: isLiked,
@@ -290,6 +298,8 @@ extension VideoPlayerCell: VideoInteractionDelegate {
                 await MainActor.run {
                     interactionBar.configure(
                         videoId: videoId,
+                        creatorId: metadata.creatorId,
+                        creatorPhotoURL: metadata.creatorPhotoURL,
                         likes: metadata.stats.likes,
                         comments: metadata.stats.comments,
                         isLiked: !interactionBar.isLiked,  // Revert to original state
@@ -301,8 +311,52 @@ extension VideoPlayerCell: VideoInteractionDelegate {
     }
     
     func didTapComment(for videoId: String) {
-        // TODO: Show comments overlay
-        print("Show comments for video: \(videoId)")
+        guard let metadata = metadata else {
+            print("❌ VideoPlayerCell - No metadata available for comment action")
+            return
+        }
+        
+        // Create and present comment view controller
+        let commentVC = CommentViewController(videoId: videoId, creatorId: metadata.creatorId)
+        
+        // Configure presentation style
+        commentVC.modalPresentationStyle = .pageSheet
+        
+        if let sheet = commentVC.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            sheet.prefersEdgeAttachedInCompactHeight = true
+        }
+        
+        // Present the comment section
+        parentViewController?.present(commentVC, animated: true)
+    }
+    
+    func didTapCreatorProfile(for creatorId: String) {
+        print("👆 VideoPlayerCell - Received profile tap for creator: \(creatorId)")
+        guard let metadata = metadata else {
+            print("❌ VideoPlayerCell - No metadata available for profile action")
+            return
+        }
+        
+        guard let parentVC = parentViewController else {
+            print("❌ VideoPlayerCell - No parent view controller found")
+            return
+        }
+        
+        print("📱 VideoPlayerCell - Creating ProfileViewController for creator: \(creatorId)")
+        let profileVC = ProfileViewController(userId: creatorId)
+        profileVC.modalPresentationStyle = .pageSheet
+        
+        if let sheet = profileVC.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            sheet.prefersEdgeAttachedInCompactHeight = true
+        }
+        
+        parentVC.present(profileVC, animated: true)
     }
 }
 

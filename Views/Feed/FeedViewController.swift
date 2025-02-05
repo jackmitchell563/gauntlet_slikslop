@@ -316,20 +316,4 @@ extension FeedViewController {
             loadMoreContent()
         }
     }
-}
-
-// MARK: - SwiftUI Integration
-
-struct FeedView: UIViewControllerRepresentable {
-    @Binding var selectedTab: BottomNavigationBar.Tab
-    
-    func makeUIViewController(context: Context) -> FeedViewController {
-        return FeedViewController()
-    }
-    
-    func updateUIViewController(_ uiViewController: FeedViewController, context: Context) {
-        // Update visibility based on selected tab
-        let isVisible = selectedTab == .home
-        uiViewController.handleTabVisibilityChange(isVisible: isVisible)
-    }
 } 
