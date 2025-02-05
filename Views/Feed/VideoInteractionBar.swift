@@ -31,10 +31,7 @@ class VideoInteractionBar: UIView {
     
     private lazy var profileButton: UIButton = {
         let button = UIButton()
-        button.layer.cornerRadius = 24  // Half of width/height
         button.clipsToBounds = true
-        button.layer.borderWidth = 1
-        button.layer.borderColor = UIColor.white.cgColor
         button.addTarget(self, action: #selector(handleProfileTap), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.layer.shadowColor = UIColor.black.cgColor
@@ -143,11 +140,11 @@ class VideoInteractionBar: UIView {
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
             
-            // Profile image constraints
-            profileImageView.topAnchor.constraint(equalTo: profileButton.topAnchor),
-            profileImageView.leadingAnchor.constraint(equalTo: profileButton.leadingAnchor),
-            profileImageView.trailingAnchor.constraint(equalTo: profileButton.trailingAnchor),
-            profileImageView.bottomAnchor.constraint(equalTo: profileButton.bottomAnchor)
+            // Profile image constraints - Updated to ensure proper centering and sizing
+            profileImageView.centerXAnchor.constraint(equalTo: profileButton.centerXAnchor),
+            profileImageView.centerYAnchor.constraint(equalTo: profileButton.centerYAnchor),
+            profileImageView.widthAnchor.constraint(equalTo: profileButton.widthAnchor),
+            profileImageView.heightAnchor.constraint(equalTo: profileButton.heightAnchor)
         ])
     }
     
@@ -194,26 +191,39 @@ class VideoInteractionBar: UIView {
             container.addSubview(label)
         }
         
+        // Set constant size for all buttons
+        let buttonSize: CGFloat = 48  // 32 * 1.5
+        
         var constraints = [
-            button.topAnchor.constraint(equalTo: container.topAnchor),
-            button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            button.widthAnchor.constraint(equalToConstant: 48),  // 32 * 1.5
-            button.heightAnchor.constraint(equalToConstant: 48)  // 32 * 1.5
+            button.widthAnchor.constraint(equalToConstant: buttonSize),
+            button.heightAnchor.constraint(equalToConstant: buttonSize)
         ]
         
         if let label = label {
+            // For buttons with labels (like and comment buttons)
             constraints.append(contentsOf: [
-                label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 0),
+                button.topAnchor.constraint(equalTo: container.topAnchor),
+                button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 4),
                 label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                label.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+                label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                label.trailingAnchor.constraint(equalTo: container.trailingAnchor)
             ])
         } else {
-            constraints.append(button.bottomAnchor.constraint(equalTo: container.bottomAnchor))
+            // For profile button (no label)
+            constraints.append(contentsOf: [
+                button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                button.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                button.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor),
+                button.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor)
+            ])
         }
         
+        // Container sizing
         constraints.append(contentsOf: [
-            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),  // 32 * 1.5
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 75)  // 50 * 1.5
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: buttonSize + 16),
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: label != nil ? 75 : buttonSize + 16)  // Adjusted height based on whether there's a label
         ])
         
         NSLayoutConstraint.activate(constraints)
@@ -369,5 +379,11 @@ class VideoInteractionBar: UIView {
         }
         print("📱 VideoInteractionBar - Delegating profile tap for creator: \(creatorId)")
         delegate?.didTapCreatorProfile(for: creatorId)
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Update corner radius in layoutSubviews to ensure it's always circular
+        profileButton.layer.cornerRadius = profileButton.bounds.width / 2
     }
 } 

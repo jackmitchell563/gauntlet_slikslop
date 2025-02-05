@@ -2,6 +2,17 @@ import UIKit
 
 /// Collection view cell for displaying video thumbnails in profile grid
 class VideoThumbnailCell: UICollectionViewCell {
+    // MARK: - Properties
+    
+    override var isHighlighted: Bool {
+        didSet {
+            UIView.animate(withDuration: 0.1) {
+                self.alpha = self.isHighlighted ? 0.7 : 1.0
+                self.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.95, y: 0.95) : .identity
+            }
+        }
+    }
+    
     // MARK: - UI Components
     
     private lazy var thumbnailImageView: UIImageView = {
@@ -10,6 +21,7 @@ class VideoThumbnailCell: UICollectionViewCell {
         iv.clipsToBounds = true
         iv.backgroundColor = .systemGray6
         iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.isUserInteractionEnabled = true
         return iv
     }()
     
@@ -48,6 +60,8 @@ class VideoThumbnailCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isUserInteractionEnabled = true
+        contentView.isUserInteractionEnabled = true
         setupUI()
     }
     

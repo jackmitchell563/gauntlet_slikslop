@@ -14,6 +14,7 @@ class FeedViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var isVisible = true
     private var isScrolling = false
+    private var initialVideo: VideoMetadata?
     
     // MARK: - UI Components
     
@@ -110,7 +111,17 @@ class FeedViewController: UIViewController {
                 return
             }
             
-            let initialVideos = try await FeedService.shared.fetchFYPVideos(userId: userId)
+            var initialVideos: [VideoMetadata]
+            if let initialVideo = initialVideo {
+                // If we have an initial video, put it at the top
+                let feedVideos = try await FeedService.shared.fetchFYPVideos(userId: userId)
+                // Filter out the initial video if it exists in the feed to avoid duplication
+                let filteredVideos = feedVideos.filter { $0.id != initialVideo.id }
+                initialVideos = [initialVideo] + filteredVideos
+            } else {
+                initialVideos = try await FeedService.shared.fetchFYPVideos(userId: userId)
+            }
+            
             await MainActor.run {
                 self.videos = initialVideos
                 self.collectionView.reloadData()
@@ -239,6 +250,22 @@ class FeedViewController: UIViewController {
         } else {
             // Resume playback of the most visible video when returning
             playVisibleVideos()
+        }
+    }
+    
+    // MARK: - Public Methods
+    
+    func setInitialVideo(_ video: VideoMetadata) {
+        self.initialVideo = video
+    }
+    
+    func reloadFeed() {
+        // Reset scroll position
+        collectionView.setContentOffset(.zero, animated: false)
+        
+        // Reload the feed content
+        Task {
+            await loadInitialContent()
         }
     }
 }

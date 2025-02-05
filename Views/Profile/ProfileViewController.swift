@@ -1,5 +1,6 @@
 import UIKit
 import FirebaseFirestore
+import SwiftUI
 
 /// View controller for displaying user profiles and their videos
 class ProfileViewController: UIViewController {
@@ -69,6 +70,10 @@ class ProfileViewController: UIViewController {
         view.addSubview(headerView)
         view.addSubview(videoCollectionView)
         view.addSubview(loadingIndicator)
+        
+        // Enable user interaction
+        videoCollectionView.isUserInteractionEnabled = true
+        videoCollectionView.allowsSelection = true
         
         // Setup constraints
         NSLayoutConstraint.activate([
@@ -144,9 +149,18 @@ extension ProfileViewController: UICollectionViewDelegateFlowLayout {
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let video = videos[indexPath.item]
-        let videoVC = VideoDetailViewController(video: video)
-        navigationController?.pushViewController(videoVC, animated: true)
+        print("Selected video at index: \(indexPath.item)")
+        let selectedVideo = videos[indexPath.item]
+        
+        // Dismiss the profile view
+        dismiss(animated: true) {
+            // Post notification to switch to feed tab with the selected video
+            NotificationCenter.default.post(
+                name: Notification.Name("SwitchToFeedTab"),
+                object: nil,
+                userInfo: ["selectedVideo": selectedVideo]
+            )
+        }
     }
 }
 

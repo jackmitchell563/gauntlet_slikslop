@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var feedType: TopNavigationBar.FeedType = .forYou
     @State private var selectedTab: BottomNavigationBar.Tab = .home
     @State private var showingTestView = false
+    @State private var selectedVideo: VideoMetadata?
     
     var body: some View {
         ZStack {
@@ -19,7 +20,7 @@ struct ContentView: View {
                 // Home Tab (Feed)
                 ZStack(alignment: .top) {
                     NavigationView {
-                        FeedView(selectedTab: $selectedTab)
+                        FeedView(selectedTab: $selectedTab, selectedVideo: selectedVideo)
                             .ignoresSafeArea()
                             .navigationBarHidden(true)
                     }
@@ -71,6 +72,22 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingTestView) {
             TestFirebaseView()
+        }
+        .onAppear {
+            setupNotifications()
+        }
+    }
+    
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("SwitchToFeedTab"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let video = notification.userInfo?["selectedVideo"] as? VideoMetadata {
+                selectedVideo = video
+                selectedTab = .home
+            }
         }
     }
 }

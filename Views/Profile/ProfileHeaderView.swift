@@ -46,7 +46,7 @@ class ProfileHeaderView: UIView {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.distribution = .equalSpacing
-        stack.spacing = 30
+        stack.spacing = 80
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
@@ -121,14 +121,14 @@ class ProfileHeaderView: UIView {
         let container = UIView()
         
         let countLabel = UILabel()
-        countLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        countLabel.font = .systemFont(ofSize: 20, weight: .bold)
         countLabel.textAlignment = .center
         countLabel.tag = 1 // Tag for later access
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         
         let titleLabel = UILabel()
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 12)
+        titleLabel.font = .systemFont(ofSize: 14)
         titleLabel.textColor = .secondaryLabel
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
