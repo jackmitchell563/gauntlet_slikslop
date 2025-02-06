@@ -318,15 +318,24 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         
         // Create and present comment view controller
         let commentVC = CommentViewController(videoId: videoId, creatorId: metadata.creatorId)
-        
-        // Configure presentation style
         commentVC.modalPresentationStyle = .pageSheet
         
         if let sheet = commentVC.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            // Create custom detent that's 1 point smaller than maximum height
+            let customDetent = UISheetPresentationController.Detent.custom { context in
+                return context.maximumDetentValue - 1
+            }
+            let mediumDetent = UISheetPresentationController.Detent.medium()
+            
+            sheet.detents = [mediumDetent, customDetent]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
+            sheet.delegate = self
+            
+            if #available(iOS 15.0, *) {
+                sheet.preferredCornerRadius = 15.0
+            }
         }
         
         // Present the comment section
@@ -350,12 +359,18 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         profileVC.modalPresentationStyle = .pageSheet
         
         if let sheet = profileVC.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            // Create custom detent that's 1 point smaller than maximum height
+            let customDetent = UISheetPresentationController.Detent.custom { context in
+                return context.maximumDetentValue - 1
+            }
+            let mediumDetent = UISheetPresentationController.Detent.medium()
+            
+            sheet.detents = [mediumDetent, customDetent]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
+            sheet.delegate = self
             
-            // Add a grabber color that works well with dark mode
             if #available(iOS 15.0, *) {
                 sheet.preferredCornerRadius = 15.0
             }
@@ -374,12 +389,20 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         // Create and present the character selection view controller
         let selectionVC = CharacterSelectionViewController()
         selectionVC.modalPresentationStyle = .pageSheet
+        selectionVC.delegate = self // Set the delegate
         
         if let sheet = selectionVC.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            // Create a custom detent that's 1 point smaller than maximum height
+            let customDetent = UISheetPresentationController.Detent.custom { context in
+                return context.maximumDetentValue - 1
+            }
+            let mediumDetent = UISheetPresentationController.Detent.medium()
+            
+            sheet.detents = [mediumDetent, customDetent]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
+            sheet.delegate = self // Set sheet delegate
             
             if #available(iOS 15.0, *) {
                 sheet.preferredCornerRadius = 15.0
@@ -387,6 +410,49 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         }
         
         parentViewController?.present(selectionVC, animated: true)
+    }
+}
+
+// MARK: - CharacterSelectionDelegate
+
+extension VideoPlayerCell: CharacterSelectionDelegate {
+    func characterSelectionViewController(_ viewController: CharacterSelectionViewController, didSelect character: GameCharacter) {
+        print("📱 VideoPlayerCell - Character selected: \(character.name)")
+        
+        // Dismiss the character selection view controller
+        viewController.dismiss(animated: true) { [weak self] in
+            // Present the chat view controller
+            let chatVC = ChatViewController(character: character)
+            chatVC.modalPresentationStyle = .pageSheet
+            
+            if let sheet = chatVC.sheetPresentationController {
+                // Create a custom detent that's 1 point smaller than maximum height
+                let customDetent = UISheetPresentationController.Detent.custom { context in
+                    return context.maximumDetentValue - 1
+                }
+                
+                sheet.detents = [customDetent]
+                sheet.prefersGrabberVisible = true
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+                sheet.prefersEdgeAttachedInCompactHeight = true
+                sheet.delegate = self // Set sheet delegate
+                
+                if #available(iOS 15.0, *) {
+                    sheet.preferredCornerRadius = 15.0
+                }
+            }
+            
+            self?.parentViewController?.present(chatVC, animated: true)
+        }
+    }
+}
+
+// MARK: - UISheetPresentationControllerDelegate
+
+extension VideoPlayerCell: UISheetPresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        print("📱 VideoPlayerCell - Sheet dismissed, resuming video playback")
+        play()
     }
 }
 

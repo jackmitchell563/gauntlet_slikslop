@@ -42,7 +42,7 @@ class LoginViewController: UIViewController {
     // MARK: - Setup
     
     private func setupUI() {
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .black
         
         // Add hosting controller
         addChild(containerView)
@@ -94,6 +94,7 @@ private struct LoginContentView: View {
                 Text("SlikSlop")
                     .font(.largeTitle)
                     .fontWeight(.bold)
+                    .foregroundColor(.customText)
                     .padding(.top, 60)
                 
                 VStack(spacing: 16) {
@@ -136,7 +137,7 @@ private struct LoginContentView: View {
                     // Sign Up button
                     HStack {
                         Text("Don't have an account?")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.customSubtitle)
                         
                         AuthSecondaryButton(title: "Sign Up") {
                             showSignUp = true
@@ -148,6 +149,7 @@ private struct LoginContentView: View {
             .padding(.horizontal)
             .padding(.bottom, 32)
         }
+        .background(Color.customBackground)
         .sheet(isPresented: $showSignUp) {
             SignUpView { success in
                 if success {
@@ -242,7 +244,7 @@ class SignUpViewController: UIViewController {
     // MARK: - Setup
     
     private func setupUI() {
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .black
         
         // Add hosting controller
         addChild(containerView)
@@ -295,10 +297,11 @@ private struct SignUpContentView: View {
                     Text("Create Account")
                         .font(.largeTitle)
                         .fontWeight(.bold)
+                        .foregroundColor(.customText)
                     
                     Text("Join SlikSlop today")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.customSubtitle)
                 }
                 .padding(.top, 60)
                 
@@ -346,7 +349,7 @@ private struct SignUpContentView: View {
                     // Back to Login button
                     HStack {
                         Text("Already have an account?")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.customSubtitle)
                         
                         AuthSecondaryButton(title: "Sign In") {
                             dismiss()
@@ -358,6 +361,7 @@ private struct SignUpContentView: View {
             .padding(.horizontal)
             .padding(.bottom, 32)
         }
+        .background(Color.customBackground)
     }
     
     // MARK: - Actions

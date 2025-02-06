@@ -32,7 +32,7 @@ struct AuthTextField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(.customSubtitle)
             
             Group {
                 if isSecure {
@@ -46,7 +46,12 @@ struct AuthTextField: View {
             .keyboardType(keyboardType)
             .textInputAutocapitalization(autocapitalization)
             .padding()
-            .background(Color(.systemGray6))
+            .foregroundColor(.customText)
+            .background(Color.black.opacity(0.3))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.customSubtitle, lineWidth: 1)
+            )
             .cornerRadius(10)
         }
         .padding(.horizontal)
