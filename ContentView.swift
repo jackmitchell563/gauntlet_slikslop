@@ -67,11 +67,7 @@ struct ContentView: View {
                     .tag(BottomNavigationBar.Tab.create)
                 
                 // Profile Tab
-                Color.black
-                    .overlay(
-                        Text("Profile")
-                            .foregroundColor(.white)
-                    )
+                MainProfileView()
                     .tag(BottomNavigationBar.Tab.profile)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))

@@ -104,4 +104,35 @@ class ProfileService {
         let document = try await db.collection(followsCollection).document(followId).getDocument()
         return document.exists
     }
+    
+    /// Gets the number of followers for a user
+    /// - Parameter userId: The ID of the user to get follower count for
+    /// - Returns: Number of followers
+    func getFollowerCount(userId: String) async throws -> Int {
+        let snapshot = try await db.collection(followsCollection)
+            .whereField("followingId", isEqualTo: userId)
+            .count
+            .getAggregation(source: .server)
+        return Int(truncating: snapshot.count)
+    }
+    
+    /// Gets the number of users a user is following
+    /// - Parameter userId: The ID of the user to get following count for
+    /// - Returns: Number of users being followed
+    func getFollowingCount(userId: String) async throws -> Int {
+        let snapshot = try await db.collection(followsCollection)
+            .whereField("followerId", isEqualTo: userId)
+            .count
+            .getAggregation(source: .server)
+        return Int(truncating: snapshot.count)
+    }
+    
+    /// Gets both follower and following counts for a user in a single call
+    /// - Parameter userId: The ID of the user to get counts for
+    /// - Returns: Tuple containing (followerCount, followingCount)
+    func getFollowCounts(userId: String) async throws -> (followers: Int, following: Int) {
+        async let followers = getFollowerCount(userId: userId)
+        async let following = getFollowingCount(userId: userId)
+        return try await (followers, following)
+    }
 } 

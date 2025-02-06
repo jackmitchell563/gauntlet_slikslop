@@ -11,6 +11,7 @@ class ProfileHeaderView: UIView {
     weak var delegate: ProfileHeaderDelegate?
     private var isFollowing = false
     private var isCurrentUser = false
+    private var profile: UserProfile?
     
     // MARK: - UI Components
     
@@ -150,22 +151,36 @@ class ProfileHeaderView: UIView {
     
     // MARK: - Configuration
     
-    func configure(with profile: UserProfile) {
+    /// Configures the header view with user profile data
+    /// - Parameters:
+    ///   - profile: UserProfile to display
+    ///   - followerCount: Number of followers
+    ///   - followingCount: Number of users being followed
+    ///   - isFollowing: Whether the current user is following this profile
+    func configure(
+        with profile: UserProfile,
+        followerCount: Int,
+        followingCount: Int,
+        isFollowing: Bool
+    ) {
+        self.profile = profile
+        self.isFollowing = isFollowing
+        self.isCurrentUser = profile.id == AuthService.shared.currentUserId
+        
         nameLabel.text = profile.displayName
         bioLabel.text = profile.bio
         
-        // Configure stats
-        if let followersLabel = statsView.arrangedSubviews[0].viewWithTag(1) as? UILabel {
-            followersLabel.text = formatCount(profile.followerCount)
-        }
-        if let followingLabel = statsView.arrangedSubviews[1].viewWithTag(1) as? UILabel {
-            followingLabel.text = formatCount(profile.followingCount)
-        }
-        if let likesLabel = statsView.arrangedSubviews[2].viewWithTag(1) as? UILabel {
-            likesLabel.text = formatCount(profile.totalLikes)
-        }
+        // Update stats
+        updateStats(
+            followers: followerCount,
+            following: followingCount,
+            likes: profile.totalLikes
+        )
         
-        // Load profile image
+        // Update follow button state
+        updateFollowButtonAppearance()
+        
+        // Load profile image if available
         if let photoURL = profile.photoURL {
             Task {
                 await loadProfileImage(from: photoURL)
@@ -174,10 +189,26 @@ class ProfileHeaderView: UIView {
             avatarImageView.image = UIImage(systemName: "person.circle.fill")
             avatarImageView.tintColor = .systemGray3
         }
+    }
+    
+    /// Updates the stats display
+    /// - Parameters:
+    ///   - followers: Number of followers
+    ///   - following: Number of users being followed
+    ///   - likes: Total number of likes
+    private func updateStats(followers: Int, following: Int, likes: Int) {
+        let stats = [
+            ("Followers", followers),
+            ("Following", following),
+            ("Likes", likes)
+        ]
         
-        // Configure follow button
-        isCurrentUser = profile.id == AuthService.shared.currentUserId
-        updateFollowButtonAppearance()
+        for (index, (title, count)) in stats.enumerated() {
+            let statView = statsView.arrangedSubviews[index]
+            if let countLabel = statView.viewWithTag(1) as? UILabel {
+                countLabel.text = formatCount(count)
+            }
+        }
     }
     
     private func loadProfileImage(from urlString: String) async {

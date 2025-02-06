@@ -354,8 +354,14 @@ extension VideoPlayerCell: VideoInteractionDelegate {
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
+            
+            // Add a grabber color that works well with dark mode
+            if #available(iOS 15.0, *) {
+                sheet.preferredCornerRadius = 15.0
+            }
         }
         
+        // Present the profile view controller
         parentVC.present(profileVC, animated: true)
     }
 }

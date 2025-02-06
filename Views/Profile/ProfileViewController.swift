@@ -99,14 +99,27 @@ class ProfileViewController: UIViewController {
         do {
             async let profileData = profileService.getUserProfile(userId: userId)
             async let videosData = profileService.fetchUserVideos(userId: userId)
+            async let followCountsData = profileService.getFollowCounts(userId: userId)
             
-            let (profile, videos) = try await (profileData, videosData)
+            let (profile, videos, followCounts) = try await (profileData, videosData, followCountsData)
+            
+            // Check if current user is following this profile
+            var isFollowing = false
+            if let currentUserId = AuthService.shared.currentUserId {
+                isFollowing = try await profileService.isFollowing(targetUserId: userId, currentUserId: currentUserId)
+            }
             
             await MainActor.run {
                 self.profile = profile
                 self.videos = videos
                 
-                headerView.configure(with: profile)
+                // Configure header with follow counts
+                headerView.configure(
+                    with: profile,
+                    followerCount: followCounts.followers,
+                    followingCount: followCounts.following,
+                    isFollowing: isFollowing
+                )
                 videoCollectionView.reloadData()
                 loadingIndicator.stopAnimating()
             }
