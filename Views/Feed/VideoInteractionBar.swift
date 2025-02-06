@@ -5,6 +5,81 @@ protocol VideoInteractionDelegate: AnyObject {
     func didTapLike(for videoId: String)
     func didTapComment(for videoId: String)
     func didTapCreatorProfile(for creatorId: String)
+    func didTapCharacterInteraction(for videoId: String)
+}
+
+/// Add CharacterInteractionButton class before VideoInteractionBar
+class CharacterInteractionButton: UIButton {
+    private let particleEmitter = CAEmitterLayer()
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupButton()
+        setupParticleEmitter()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupButton() {
+        let config = UIImage.SymbolConfiguration(pointSize: 24)
+        setImage(UIImage(systemName: "heart.rectangle.fill", withConfiguration: config), for: .normal)
+        tintColor = .white
+        
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        layer.shadowOpacity = 0.75
+        layer.shadowRadius = 2
+        
+        addTarget(self, action: #selector(handlePress), for: .touchDown)
+        addTarget(self, action: #selector(handleRelease), for: [.touchUpInside, .touchUpOutside])
+    }
+    
+    private func setupParticleEmitter() {
+        particleEmitter.emitterPosition = CGPoint(x: bounds.midX, y: bounds.midY)
+        particleEmitter.emitterShape = .circle
+        particleEmitter.emitterSize = CGSize(width: 1, height: 1)
+        
+        let cell = CAEmitterCell()
+        cell.contents = UIImage(systemName: "heart.fill")?.cgImage
+        cell.birthRate = 0
+        cell.lifetime = 1.0
+        cell.velocity = 50
+        cell.velocityRange = 20
+        cell.emissionRange = .pi * 2
+        cell.scale = 0.2
+        cell.scaleRange = 0.1
+        cell.alphaSpeed = -1
+        cell.color = UIColor.systemPink.cgColor
+        
+        particleEmitter.emitterCells = [cell]
+        layer.addSublayer(particleEmitter)
+    }
+    
+    @objc private func handlePress() {
+        UIView.animate(withDuration: 0.1) {
+            self.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        }
+        
+        let cell = particleEmitter.emitterCells?.first
+        cell?.birthRate = 20
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            cell?.birthRate = 0
+        }
+    }
+    
+    @objc private func handleRelease() {
+        UIView.animate(withDuration: 0.1) {
+            self.transform = .identity
+        }
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        particleEmitter.emitterPosition = CGPoint(x: bounds.midX, y: bounds.midY)
+    }
 }
 
 /// Custom view for video interaction buttons (likes, comments)
@@ -77,6 +152,18 @@ class VideoInteractionBar: UIView {
         return button
     }()
     
+    private lazy var characterButton: CharacterInteractionButton = {
+        let button = CharacterInteractionButton()
+        button.addTarget(self, action: #selector(handleCharacterInteraction), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isUserInteractionEnabled = true
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowOpacity = 0.75
+        button.layer.shadowRadius = 2
+        return button
+    }()
+    
     private lazy var likeCountLabel: UILabel = {
         let label = createCountLabel()
         return label
@@ -133,6 +220,10 @@ class VideoInteractionBar: UIView {
         // Add comment button and count
         let commentContainer = createButtonContainer(button: commentButton, label: commentCountLabel)
         stackView.addArrangedSubview(commentContainer)
+        
+        // Add character interaction button
+        let characterContainer = createButtonContainer(button: characterButton, label: nil)
+        stackView.addArrangedSubview(characterContainer)
         
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor),
@@ -379,6 +470,11 @@ class VideoInteractionBar: UIView {
         }
         print("📱 VideoInteractionBar - Delegating profile tap for creator: \(creatorId)")
         delegate?.didTapCreatorProfile(for: creatorId)
+    }
+    
+    @objc private func handleCharacterInteraction() {
+        guard let videoId = videoId else { return }
+        delegate?.didTapCharacterInteraction(for: videoId)
     }
     
     override func layoutSubviews() {

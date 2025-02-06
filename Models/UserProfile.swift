@@ -59,9 +59,4 @@ struct UserProfile: Identifiable, Codable {
             "totalLikes": totalLikes
         ]
     }
-}
-
-/// Custom error type for database operations
-enum DatabaseError: Error {
-    case invalidData(String)
 } 

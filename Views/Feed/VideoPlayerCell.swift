@@ -364,6 +364,30 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         // Present the profile view controller
         parentVC.present(profileVC, animated: true)
     }
+    
+    func didTapCharacterInteraction(for videoId: String) {
+        print("👆 VideoPlayerCell - Character interaction tapped for video: \(videoId)")
+        
+        // Pause the video
+        pause()
+        
+        // Create and present the character selection view controller
+        let selectionVC = CharacterSelectionViewController()
+        selectionVC.modalPresentationStyle = .pageSheet
+        
+        if let sheet = selectionVC.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            sheet.prefersEdgeAttachedInCompactHeight = true
+            
+            if #available(iOS 15.0, *) {
+                sheet.preferredCornerRadius = 15.0
+            }
+        }
+        
+        parentViewController?.present(selectionVC, animated: true)
+    }
 }
 
 // MARK: - Helper Views
