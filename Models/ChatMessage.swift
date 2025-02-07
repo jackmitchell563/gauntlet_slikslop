@@ -10,6 +10,16 @@ struct ChatMessage: Identifiable {
     let sender: MessageSender
     /// When the message was sent
     let timestamp: Date
+    /// Sequence number determining message order (1-based)
+    let sequence: Int
+    
+    init(id: String = UUID().uuidString, text: String, sender: MessageSender, timestamp: Date = .now, sequence: Int) {
+        self.id = id
+        self.text = text
+        self.sender = sender
+        self.timestamp = timestamp
+        self.sequence = sequence
+    }
 }
 
 /// Represents who sent a message

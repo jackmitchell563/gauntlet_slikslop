@@ -187,7 +187,6 @@ class CharacterSelectionViewController: UIViewController {
     private var filteredCharacters: [GameCharacter] = []
     private var selectedGame: GachaGame?
     private var isDataPopulated = false
-    private var preloadedImages: [String: UIImage] = [:]
     private var imageHeights: [String: CGFloat] = [:] // Cache for image heights
     
     // MARK: - UI Components
@@ -331,10 +330,6 @@ class CharacterSelectionViewController: UIViewController {
                 do {
                     let characters = try await CharacterService.shared.fetchCharacters(game: selectedGame)
                     if !characters.isEmpty {
-                        // Preload images before showing UI
-                        print("📱 CharacterSelectionVC - Preloading banner images")
-                        let images = await CharacterAssetService.shared.preloadBannerImages(for: characters)
-                        
                         await MainActor.run {
                             // Randomize starting side before loading new data
                             if let layout = self.collectionView.collectionViewLayout as? MosaicLayout {
@@ -342,7 +337,6 @@ class CharacterSelectionViewController: UIViewController {
                             }
                             self.characters = interleaveCharacters(characters)
                             self.filteredCharacters = self.characters
-                            self.preloadedImages = images
                             self.isDataPopulated = true
                             self.loadingIndicator.stopAnimating()
                             self.emptyStateLabel.isHidden = true
@@ -380,7 +374,6 @@ class CharacterSelectionViewController: UIViewController {
         Task {
             do {
                 let characters = try await CharacterService.shared.fetchCharacters(game: selectedGame)
-                let images = await CharacterAssetService.shared.preloadBannerImages(for: characters)
                 
                 await MainActor.run {
                     // Randomize starting side before loading new data
@@ -389,7 +382,6 @@ class CharacterSelectionViewController: UIViewController {
                     }
                     self.characters = interleaveCharacters(characters)
                     self.filteredCharacters = self.characters
-                    self.preloadedImages = images
                     self.collectionView.reloadData()
                     self.loadingIndicator.stopAnimating()
                     self.collectionView.isHidden = false
@@ -427,8 +419,8 @@ extension CharacterSelectionViewController: MosaicLayoutDelegate {
             return height
         }
         
-        // Calculate height based on image aspect ratio if image is preloaded
-        if let image = preloadedImages[character.id] {
+        // Calculate height based on image aspect ratio if image is cached
+        if let image = CharacterAssetService.shared.getCachedImage(for: character.bannerImageURL) {
             let aspectRatio = image.size.height / image.size.width
             let baseWidth = collectionView.bounds.width / 6 // Use 6 as base columns
             let aspectType = ImageAspectType.from(aspectRatio: aspectRatio)
@@ -445,7 +437,7 @@ extension CharacterSelectionViewController: MosaicLayoutDelegate {
     func collectionView(_ collectionView: UICollectionView, widthForImageAtIndexPath indexPath: IndexPath) -> CGFloat {
         let character = filteredCharacters[indexPath.item]
         
-        if let image = preloadedImages[character.id] {
+        if let image = CharacterAssetService.shared.getCachedImage(for: character.bannerImageURL) {
             let aspectRatio = image.size.height / image.size.width
             let aspectType = ImageAspectType.from(aspectRatio: aspectRatio)
             let baseWidth = collectionView.bounds.width / 6 // Use 6 as base columns
@@ -468,13 +460,14 @@ extension CharacterSelectionViewController: UICollectionViewDataSource, UICollec
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "CharacterCell", for: indexPath) as! CharacterCell
         let character = filteredCharacters[indexPath.item]
         
-        // Track if this is a new configuration or reuse
-        if cell.currentCharacterId != character.id {
-            print("📱 CharacterSelectionVC - Initial configuration for: \(character.name)")
-            let preloadedImage = preloadedImages[character.id]
-            cell.configure(with: character, preloadedImage: preloadedImage)
-        } else {
-            print("📱 CharacterSelectionVC - Reusing cell for: \(character.name)")
+        // Check if we have a preloaded image
+        let preloadedImage = CharacterAssetService.shared.getCachedImage(for: character.bannerImageURL)
+        cell.configure(with: character, preloadedImage: preloadedImage)
+        
+        cell.onImageLoaded = { [weak self] image in
+            guard let self = self else { return }
+            // Update layout if needed when image loads
+            self.updateLayoutIfNeeded()
         }
         
         return cell
@@ -533,9 +526,10 @@ extension CharacterSelectionViewController: UISearchBarDelegate {
 private class CharacterCell: UICollectionViewCell {
     // MARK: - Properties
     
-    private(set) var currentCharacterId: String?  // Change to private(set) to allow external reading
+    private(set) var currentCharacterId: String?
     private var loadingTask: Task<Void, Never>?
     private var isImageLoaded = false
+    private var loadStartTime: Date?
     
     var onImageLoaded: ((UIImage) -> Void)?
     
@@ -546,8 +540,17 @@ private class CharacterCell: UICollectionViewCell {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = .systemGray6
+        iv.alpha = 0 // Start hidden for fade-in animation
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
+    }()
+    
+    private lazy var shimmerView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemGray6
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
     }()
     
     private lazy var loadingIndicator: UIActivityIndicatorView = {
@@ -586,12 +589,18 @@ private class CharacterCell: UICollectionViewCell {
     }
     
     private func setupUI() {
+        contentView.addSubview(shimmerView)
         contentView.addSubview(imageView)
         contentView.addSubview(loadingIndicator)
         contentView.addSubview(nameLabel)
         contentView.addSubview(gameLabel)
         
         NSLayoutConstraint.activate([
+            shimmerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            shimmerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            shimmerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            shimmerView.bottomAnchor.constraint(equalTo: nameLabel.topAnchor, constant: -4),
+            
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -608,14 +617,49 @@ private class CharacterCell: UICollectionViewCell {
             gameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
             gameLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4)
         ])
+        
+        // Add shimmer animation
+        setupShimmerAnimation()
+    }
+    
+    private func setupShimmerAnimation() {
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.colors = [
+            UIColor.systemGray6.cgColor,
+            UIColor.systemGray5.cgColor,
+            UIColor.systemGray6.cgColor
+        ]
+        gradientLayer.locations = [0, 0.5, 1]
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        shimmerView.layer.addSublayer(gradientLayer)
+        
+        let animation = CABasicAnimation(keyPath: "transform.translation.x")
+        animation.duration = 1.5
+        animation.fromValue = -shimmerView.frame.width
+        animation.toValue = shimmerView.frame.width
+        animation.repeatCount = .infinity
+        gradientLayer.add(animation, forKey: "shimmerAnimation")
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if let gradientLayer = shimmerView.layer.sublayers?.first as? CAGradientLayer {
+            gradientLayer.frame = shimmerView.bounds
+        }
     }
     
     override func prepareForReuse() {
         super.prepareForReuse()
         cancelLoading()
-        // Don't reset these properties during reuse
-        // currentCharacterId = nil
-        // isImageLoaded = false
+        // Reset all visual state
+        imageView.image = nil
+        imageView.alpha = 0
+        currentCharacterId = nil
+        isImageLoaded = false
+        shimmerView.isHidden = false
+        nameLabel.text = nil
+        gameLabel.text = nil
     }
     
     private func cancelLoading() {
@@ -625,38 +669,53 @@ private class CharacterCell: UICollectionViewCell {
     }
     
     func configure(with character: GameCharacter, preloadedImage: UIImage?) {
-        // Only reconfigure if this is a different character
-        if currentCharacterId != character.id {
-            currentCharacterId = character.id
-            nameLabel.text = character.name
-            gameLabel.text = character.game.rawValue
-            isImageLoaded = false  // Reset only when we get a new character
-            imageView.image = nil  // Clear image only when we get a new character
+        currentCharacterId = character.id
+        nameLabel.text = character.name
+        gameLabel.text = character.game.rawValue
+        
+        if let preloadedImage = preloadedImage {
+            displayImage(preloadedImage)
+        } else {
+            loadingIndicator.startAnimating()
             
-            // Only load image if not already loaded
-            if !isImageLoaded {
-                if let preloadedImage = preloadedImage {
-                    imageView.image = preloadedImage
-                    loadingIndicator.stopAnimating()
-                    isImageLoaded = true
-                    onImageLoaded?(preloadedImage)
-                } else {
-                    imageView.image = nil
-                    loadingIndicator.startAnimating()
-                    
-                    CharacterAssetService.shared.getBannerImage(for: character) { [weak self] image in
-                        guard let self = self,
-                              let image = image,
-                              !self.isImageLoaded,
-                              self.currentCharacterId == character.id else { return }
-                        
-                        self.imageView.image = image
-                        self.loadingIndicator.stopAnimating()
-                        self.isImageLoaded = true
-                        self.onImageLoaded?(image)
-                    }
-                }
+            CharacterAssetService.shared.getBannerImage(for: character) { [weak self] image in
+                guard let self = self,
+                      let image = image,
+                      self.currentCharacterId == character.id else { return }
+                
+                self.displayImage(image)
             }
+        }
+    }
+    
+    private func displayImage(_ image: UIImage) {
+        imageView.image = image
+        loadingIndicator.stopAnimating()
+        shimmerView.isHidden = true
+        isImageLoaded = true
+        
+        // Calculate load time
+        if let startTime = loadStartTime {
+            let loadTime = Date().timeIntervalSince(startTime)
+            print("📱 CharacterCell - Image loaded in \(String(format: "%.2f", loadTime))s")
+        }
+        
+        // Animate image appearance
+        UIView.animate(withDuration: 0.3) {
+            self.imageView.alpha = 1
+        }
+        
+        onImageLoaded?(image)
+    }
+}
+
+// MARK: - Private Methods
+
+private extension CharacterSelectionViewController {
+    func updateLayoutIfNeeded() {
+        // Only update layout if we're using a flow layout that needs dynamic sizing
+        if let flowLayout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
+            flowLayout.invalidateLayout()
         }
     }
 } 

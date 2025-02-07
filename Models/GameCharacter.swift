@@ -13,6 +13,8 @@ struct GameCharacter: Identifiable {
     let backgroundStory: String
     /// URL of the character's banner image
     let bannerImageURL: String
+    /// URL of the character's profile image
+    let profileImageURL: String
     /// Character's personality profile for LLM interactions
     let personalityProfile: String
     /// Character's speaking style description
@@ -76,6 +78,7 @@ extension GameCharacter {
             game: game,
             backgroundStory: data["backgroundStory"] as? String ?? "",
             bannerImageURL: data["bannerImageURL"] as? String ?? "",
+            profileImageURL: data["profileImageURL"] as? String ?? "",
             personalityProfile: data["personalityProfile"] as? String ?? "",
             speakingStyle: data["speakingStyle"] as? String ?? "",
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
@@ -99,6 +102,7 @@ extension GameCharacter {
             "game": game.rawValue,
             "personalityProfile": personalityProfile,
             "bannerImageURL": bannerImageURL,
+            "profileImageURL": profileImageURL,
             "recognitionTags": recognitionTags,
             "traits": traits,
             "speakingStyle": speakingStyle,

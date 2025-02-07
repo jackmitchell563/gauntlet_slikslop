@@ -14,7 +14,7 @@ class ChatCollectionViewLayout: UICollectionViewFlowLayout {
     
     private func setupLayout() {
         minimumInteritemSpacing = 8
-        minimumLineSpacing = 8
+        minimumLineSpacing = 4  // Reduced because the cell itself will handle the main spacing
         sectionInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         scrollDirection = .vertical
     }

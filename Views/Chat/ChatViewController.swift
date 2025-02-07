@@ -203,7 +203,6 @@ class ChatViewController: UIViewController {
     
     private func addMessage(_ message: ChatMessage) {
         messages.append(message)
-        
         let indexPath = IndexPath(item: messages.count - 1, section: 0)
         collectionView.insertItems(at: [indexPath])
         scrollToBottom()
@@ -254,7 +253,14 @@ extension ChatViewController: UICollectionViewDataSource, UICollectionViewDelega
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ChatBubbleCell.identifier, for: indexPath) as! ChatBubbleCell
         let message = messages[indexPath.item]
-        cell.configure(with: message)
+        
+        // Pass character's profile image URL for character messages
+        if message.sender == .character {
+            cell.configure(with: message, profileImageURL: character.profileImageURL)
+        } else {
+            cell.configure(with: message)
+        }
+        
         return cell
     }
     
@@ -270,11 +276,15 @@ extension ChatViewController: ChatInputViewDelegate {
     func chatInputView(_ view: ChatInputView, didSendMessage text: String) {
         guard !isLoading else { return }
         
+        // Calculate next sequence number based on last message
+        let nextSequence = (messages.last?.sequence ?? 0) + 1
+        
         let message = ChatMessage(
             id: UUID().uuidString,
             text: text,
             sender: .user,
-            timestamp: Date()
+            timestamp: Date(),
+            sequence: nextSequence
         )
         addMessage(message)
         

@@ -5,7 +5,7 @@ struct SakuraAnimation: View {
     // MARK: - Properties
     
     /// Number of petals to display
-    private let petalCount = 50
+    private let petalCount = 70
     
     /// Animation states for each petal
     @State private var petals: [PetalState]

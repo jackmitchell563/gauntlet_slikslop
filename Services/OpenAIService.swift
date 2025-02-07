@@ -7,59 +7,36 @@ class OpenAIService {
     /// Shared instance for singleton access
     static let shared = OpenAIService()
     
-    private let apiKey: String
-    private let baseURL = "https://api.openai.com/v1"
-    private let model = "gpt-4o-mini"
+    private let lambdaEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate"
     
     // MARK: - Types
     
     enum OpenAIError: LocalizedError {
-        case invalidURL
         case invalidResponse
         case apiError(String)
-        case missingAPIKey
+        case unauthorized
+        case rateLimitExceeded
+        case networkError
         
         var errorDescription: String? {
             switch self {
-            case .invalidURL:
-                return "Invalid API URL"
             case .invalidResponse:
-                return "Invalid response from OpenAI"
+                return "Invalid response from AI service"
             case .apiError(let message):
-                return "OpenAI API error: \(message)"
-            case .missingAPIKey:
-                return "OpenAI API key not found"
-            }
-        }
-    }
-    
-    struct ChatRequest: Codable {
-        let model: String
-        let messages: [[String: String]]
-        let temperature: Double
-        let max_tokens: Int
-    }
-    
-    struct ChatResponse: Codable {
-        let choices: [Choice]
-        
-        struct Choice: Codable {
-            let message: Message
-            
-            struct Message: Codable {
-                let content: String
+                return "AI service error: \(message)"
+            case .unauthorized:
+                return "Unauthorized. Please log in."
+            case .rateLimitExceeded:
+                return "Rate limit exceeded. Please try again later."
+            case .networkError:
+                return "Network error. Please check your connection."
             }
         }
     }
     
     // MARK: - Initialization
     
-    private init() {
-        self.apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-        if apiKey.isEmpty {
-            print("⚠️ OpenAIService - Warning: API key not found in environment")
-        }
-    }
+    private init() {}
     
     // MARK: - Public Methods
     
@@ -74,11 +51,7 @@ class OpenAIService {
     ) async throws -> String {
         print("📱 OpenAIService - Generating response for character: \(character.name)")
         
-        guard !apiKey.isEmpty else {
-            throw OpenAIError.missingAPIKey
-        }
-        
-        // Construct system prompt
+        // Prepare system prompt
         let systemPrompt = """
             You are \(character.name), a character from \(character.game).
             Background: \(character.backgroundStory)
@@ -104,45 +77,101 @@ class OpenAIService {
             ])
         }
         
-        // Create request
-        let request = ChatRequest(
-            model: model,
-            messages: apiMessages,
-            temperature: 0.7,
-            max_tokens: 150
-        )
+        // Create request data
+        let requestData: [String: Any] = [
+            "messages": apiMessages,
+            "temperature": 0.7,
+            "maxTokens": 150
+        ]
         
-        // Encode request
-        guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
-            throw OpenAIError.invalidURL
+        // Create URL request
+        guard let url = URL(string: lambdaEndpoint) else {
+            throw OpenAIError.apiError("Invalid Lambda endpoint")
         }
         
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONEncoder().encode(request)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Make API call
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        
-        // Validate response
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAIError.invalidResponse
+        // Add auth token if user is logged in
+        if AuthService.shared.isAuthenticated,
+           let idToken = try? await FirebaseConfig.getAuthInstance().currentUser?.getIDToken() {
+            request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
         }
         
-        if httpResponse.statusCode != 200 {
-            let errorResponse = try? JSONDecoder().decode([String: String].self, from: data)
-            throw OpenAIError.apiError(errorResponse?["error"] ?? "Unknown error")
-        }
+        // Encode request data
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestData)
         
-        // Parse response
-        let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let content = chatResponse.choices.first?.message.content else {
-            throw OpenAIError.invalidResponse
-        }
+        // Log request details
+        logRequest(request)
         
-        print("📱 OpenAIService - Generated response successfully")
-        return content
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // Check HTTP status
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ OpenAIService - Invalid response type received")
+                throw OpenAIError.invalidResponse
+            }
+            
+            // Log response status and headers
+            print("📱 OpenAIService - Response status: \(httpResponse.statusCode)")
+            
+            // If error, try to parse response body for more details
+            if httpResponse.statusCode != 200 {
+                let responseString = String(data: data, encoding: .utf8) ?? "No response body"
+                print("❌ OpenAIService - Error response: \(responseString)")
+            }
+            
+            switch httpResponse.statusCode {
+            case 200:
+                // Try parsing as JSON first
+                if let jsonResponse = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let content = jsonResponse["content"] as? String {
+                    print("📱 OpenAIService - Generated response successfully (JSON)")
+                    return content
+                }
+                
+                // If JSON parsing fails, try using the response as raw text
+                if let content = String(data: data, encoding: .utf8) {
+                    print("📱 OpenAIService - Generated response successfully (raw text)")
+                    return content
+                }
+                
+                // If both parsing attempts fail, log the response and throw error
+                print("❌ OpenAIService - Invalid response format")
+                print("📱 OpenAIService - Response data: \(String(data: data, encoding: .utf8) ?? "none")")
+                throw OpenAIError.invalidResponse
+                
+            case 401:
+                throw OpenAIError.unauthorized
+            case 429:
+                throw OpenAIError.rateLimitExceeded
+            default:
+                if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let errorMessage = errorData["error"] as? String {
+                    throw OpenAIError.apiError(errorMessage)
+                }
+                throw OpenAIError.apiError("Unknown error occurred")
+            }
+        } catch let error as OpenAIError {
+            throw error
+        } catch {
+            print("❌ OpenAIService - Network error details: \(error.localizedDescription)")
+            throw OpenAIError.networkError
+        }
+    }
+    
+    // MARK: - Private Methods
+    
+    /// Logs the request details for debugging
+    private func logRequest(_ request: URLRequest) {
+        print("📱 OpenAIService - Request URL: \(request.url?.absoluteString ?? "none")")
+        print("📱 OpenAIService - Request method: \(request.httpMethod ?? "none")")
+        print("📱 OpenAIService - Request headers: \(request.allHTTPHeaderFields ?? [:])")
+        if let body = request.httpBody,
+           let bodyString = String(data: body, encoding: .utf8) {
+            print("📱 OpenAIService - Request body: \(bodyString)")
+        }
     }
 } 

@@ -50,16 +50,20 @@ class CharacterChatService {
     ) async throws -> ChatMessage {
         print("📱 CharacterChatService - Sending message to character: \(character.name)")
         
+        // Get the next sequence number
+        let chatId = getChatId(for: character)
+        let nextSequence = (messageCache[chatId]?.last?.sequence ?? 0) + 1
+        
         // Create user message
         let userMessage = ChatMessage(
             id: UUID().uuidString,
             text: text,
             sender: .user,
-            timestamp: Date()
+            timestamp: Date(),
+            sequence: nextSequence
         )
         
         // Get chat history
-        let chatId = getChatId(for: character)
         var messages = messageCache[chatId] ?? []
         messages.append(userMessage)
         
@@ -69,12 +73,13 @@ class CharacterChatService {
             character: character
         )
         
-        // Create response message
+        // Create response message with next sequence
         let responseMessage = ChatMessage(
             id: UUID().uuidString,
             text: responseText,
             sender: .character,
-            timestamp: Date()
+            timestamp: Date(),
+            sequence: nextSequence + 1
         )
         
         // Update cache
@@ -120,7 +125,7 @@ class CharacterChatService {
         let snapshot = try await db.collection("chats")
             .document(chatId)
             .collection("messages")
-            .order(by: "timestamp", descending: true)
+            .order(by: "sequence", descending: false)  // Order by sequence instead of timestamp
             .limit(to: limit)
             .getDocuments()
         
@@ -128,7 +133,8 @@ class CharacterChatService {
             guard let id = document.data()["id"] as? String,
                   let text = document.data()["text"] as? String,
                   let senderRaw = document.data()["sender"] as? String,
-                  let timestamp = document.data()["timestamp"] as? Timestamp else {
+                  let timestamp = document.data()["timestamp"] as? Timestamp,
+                  let sequence = document.data()["sequence"] as? Int else {
                 return nil
             }
             
@@ -138,9 +144,10 @@ class CharacterChatService {
                 id: id,
                 text: text,
                 sender: sender,
-                timestamp: timestamp.dateValue()
+                timestamp: timestamp.dateValue(),
+                sequence: sequence
             )
-        }.reversed().map { $0 } // Convert ReversedCollection to Array
+        }
         
         // Update cache
         messageCache[chatId] = messages
@@ -171,6 +178,7 @@ class CharacterChatService {
                 "text": message.text,
                 "sender": message.sender == .user ? "user" : "character",
                 "timestamp": FieldValue.serverTimestamp(),
+                "sequence": message.sequence,
                 "status": "sent"
             ])
     }
