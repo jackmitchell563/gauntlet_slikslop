@@ -6,6 +6,14 @@ class ChatViewController: UIViewController {
     
     private let character: GameCharacter
     private var messages: [ChatMessage] = []
+    private let chatService = CharacterChatService.shared
+    
+    // Loading state
+    private var isLoading = false {
+        didSet {
+            updateLoadingState()
+        }
+    }
     
     // MARK: - UI Components
     
@@ -62,6 +70,7 @@ class ChatViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupKeyboardObservers()
+        loadChatHistory()
         
         // Configure sheet presentation behavior
         if let sheet = sheetPresentationController {
@@ -176,12 +185,42 @@ class ChatViewController: UIViewController {
     
     // MARK: - Message Handling
     
+    private func loadChatHistory() {
+        Task {
+            do {
+                let history = try await chatService.loadChatHistory(for: character)
+                await MainActor.run {
+                    messages = history
+                    collectionView.reloadData()
+                    scrollToBottom()
+                }
+            } catch {
+                print("❌ ChatViewController - Error loading chat history: \(error)")
+                // TODO: Show error to user
+            }
+        }
+    }
+    
     private func addMessage(_ message: ChatMessage) {
         messages.append(message)
         
         let indexPath = IndexPath(item: messages.count - 1, section: 0)
         collectionView.insertItems(at: [indexPath])
+        scrollToBottom()
+    }
+    
+    private func scrollToBottom() {
+        guard !messages.isEmpty else { return }
+        let indexPath = IndexPath(item: messages.count - 1, section: 0)
         collectionView.scrollToItem(at: indexPath, at: .bottom, animated: true)
+    }
+    
+    private func updateLoadingState() {
+        if isLoading {
+            showTypingIndicator()
+        } else {
+            hideTypingIndicator()
+        }
     }
     
     private func showTypingIndicator() {
@@ -192,6 +231,16 @@ class ChatViewController: UIViewController {
     private func hideTypingIndicator() {
         typingIndicator.isHidden = true
         typingIndicator.stopAnimating()
+    }
+    
+    private func handleError(_ error: Error) {
+        let alert = UIAlertController(
+            title: "Error",
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 }
 
@@ -219,6 +268,8 @@ extension ChatViewController: UICollectionViewDataSource, UICollectionViewDelega
 
 extension ChatViewController: ChatInputViewDelegate {
     func chatInputView(_ view: ChatInputView, didSendMessage text: String) {
+        guard !isLoading else { return }
+        
         let message = ChatMessage(
             id: UUID().uuidString,
             text: text,
@@ -227,6 +278,22 @@ extension ChatViewController: ChatInputViewDelegate {
         )
         addMessage(message)
         
-        // TODO: Implement character response handling
+        isLoading = true
+        
+        Task {
+            do {
+                let response = try await chatService.sendMessage(text: text, to: character)
+                await MainActor.run {
+                    addMessage(response)
+                    isLoading = false
+                }
+            } catch {
+                print("❌ ChatViewController - Error sending message: \(error)")
+                await MainActor.run {
+                    isLoading = false
+                    handleError(error)
+                }
+            }
+        }
     }
 } 

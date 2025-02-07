@@ -34,9 +34,13 @@ struct SakuraAnimation: View {
     /// Callback for when logo animation completes
     let onLogoAnimationComplete: () -> Void
     
+    /// Additional opacity control for logo only
+    let logoOpacityOverride: Double
+    
     // MARK: - Initialization
     
-    init(onLogoAnimationComplete: @escaping () -> Void) {
+    init(logoOpacityOverride: Double = 1.0, onLogoAnimationComplete: @escaping () -> Void) {
+        self.logoOpacityOverride = logoOpacityOverride
         self.onLogoAnimationComplete = onLogoAnimationComplete
         _petals = State(initialValue: (0..<petalCount).map { PetalState(index: $0) })
     }
@@ -68,7 +72,7 @@ struct SakuraAnimation: View {
                         Text("SlikSlop")
                             .font(.system(size: 48, weight: .bold))
                             .foregroundColor(.customText)
-                            .opacity(logoOpacity)
+                            .opacity(logoOpacity * logoOpacityOverride)
                             .scaleEffect(logoScale)
                         Spacer()
                     }

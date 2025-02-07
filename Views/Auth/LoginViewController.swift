@@ -83,16 +83,24 @@ private struct LoginContentView: View {
     
     @State private var email = ""
     @State private var password = ""
+    @State private var confirmPassword = ""  // For sign up
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showSignUp = false
     @State private var showForgotPassword = false
     @State private var showLoginElements = false
+    @FocusState private var focusedField: Field?
     
     // Add offset state for logo movement
     @State private var logoOffset: CGFloat = 0
+    @State private var backgroundOpacity: Double = 1.0
+    @State private var logoOpacityOverride: Double = 1.0  // New state for logo opacity
     
     let onComplete: (Bool) -> Void
+    
+    private enum Field {
+        case email, password, confirmPassword
+    }
     
     // MARK: - Body
     
@@ -100,7 +108,7 @@ private struct LoginContentView: View {
         GeometryReader { geometry in
             ZStack {
                 // Background with Sakura Animation
-                SakuraAnimation { 
+                SakuraAnimation(logoOpacityOverride: logoOpacityOverride) { 
                     // Logo animation completed, wait 1 second then show login elements
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         withAnimation(.easeOut(duration: 0.5)) {
@@ -108,88 +116,120 @@ private struct LoginContentView: View {
                         }
                     }
                 }
+                .opacity(backgroundOpacity)
                 .allowsHitTesting(false)  // Prevent animation from blocking interaction
                 
-                // Sign In View
-                if !showSignUp {
-                    VStack {
-                        Spacer()
-                        
-                        VStack(spacing: 24) {
-                            VStack(spacing: 16) {
-                                // Email field
-                                AuthTextField(
-                                    title: "Email",
-                                    placeholder: "Enter your email",
-                                    text: $email,
-                                    keyboardType: .emailAddress,
-                                    textContentType: .emailAddress
-                                )
-                                
-                                // Password field
-                                AuthTextField(
-                                    title: "Password",
-                                    placeholder: "Enter your password",
-                                    text: $password,
-                                    isSecure: true,
-                                    textContentType: .password
-                                )
-                                
-                                // Error message
-                                AuthErrorLabel(error: errorMessage)
+                VStack {
+                    Spacer()
+                    
+                    // Sign In View
+                    VStack(spacing: 24) {
+                        VStack(spacing: 16) {
+                            if showSignUp {
+                                // Header for Sign Up
+                                VStack(spacing: 8) {
+                                    Text("Create Account")
+                                        .font(.largeTitle)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.customText)
+                                    
+                                    Text("Join SlikSlop today")
+                                        .font(.subheadline)
+                                        .foregroundColor(.customSubtitle)
+                                }
+                                .padding(.bottom, 8)
                             }
                             
-                            VStack(spacing: 12) {
-                                // Sign In button
-                                AuthButton(
-                                    title: "Sign In",
-                                    isLoading: isLoading
-                                ) {
+                            // Email field
+                            AuthTextField(
+                                title: "Email",
+                                placeholder: "Enter your email",
+                                text: $email,
+                                keyboardType: .emailAddress,
+                                textContentType: .emailAddress
+                            )
+                            .focused($focusedField, equals: .email)
+                            
+                            // Password field
+                            AuthTextField(
+                                title: showSignUp ? "Create Password" : "Password",
+                                placeholder: showSignUp ? "Create a password" : "Enter your password",
+                                text: $password,
+                                isSecure: true,
+                                textContentType: showSignUp ? .newPassword : .password
+                            )
+                            .focused($focusedField, equals: .password)
+                            
+                            // Confirm Password field (Sign Up only)
+                            if showSignUp {
+                                AuthTextField(
+                                    title: "Confirm Password",
+                                    placeholder: "Confirm your password",
+                                    text: $confirmPassword,
+                                    isSecure: true,
+                                    textContentType: .newPassword
+                                )
+                                .focused($focusedField, equals: .confirmPassword)
+                            }
+                            
+                            // Error message
+                            AuthErrorLabel(error: errorMessage)
+                        }
+                        
+                        VStack(spacing: 12) {
+                            // Main Button (Sign In/Up)
+                            AuthButton(
+                                title: showSignUp ? "Sign Up" : "Sign In",
+                                isLoading: isLoading
+                            ) {
+                                if showSignUp {
+                                    await signUp()
+                                } else {
                                     await signIn()
                                 }
-                                
-                                // Forgot Password button
+                            }
+                            
+                            if !showSignUp {
+                                // Forgot Password button (Login only)
                                 AuthSecondaryButton(title: "Forgot Password?") {
                                     showForgotPassword = true
                                 }
+                            }
+                            
+                            // Toggle Sign In/Up button
+                            HStack {
+                                Text(showSignUp ? "Already have an account?" : "Don't have an account?")
+                                    .foregroundColor(.customSubtitle)
                                 
-                                // Sign Up button
-                                HStack {
-                                    Text("Don't have an account?")
-                                        .foregroundColor(.customSubtitle)
-                                    
-                                    AuthSecondaryButton(title: "Sign Up") {
-                                        withAnimation {
-                                            showSignUp = true
-                                        }
+                                AuthSecondaryButton(title: showSignUp ? "Sign In" : "Sign Up") {
+                                    withAnimation(.easeInOut(duration: 0.1)) {
+                                        showSignUp.toggle()
+                                        // Clear fields and errors when switching
+                                        email = ""
+                                        password = ""
+                                        confirmPassword = ""
+                                        errorMessage = nil
+                                        focusedField = nil
+                                    }
+                                    // Animate logo opacity
+                                    withAnimation(.easeInOut(duration: 0.25)) {
+                                        logoOpacityOverride = showSignUp ? 0.0 : 1.0
                                     }
                                 }
-                                .padding(.top, 8)
                             }
+                            .padding(.top, 8)
                         }
-                        .padding(.horizontal)
-                        .opacity(showLoginElements ? 1 : 0)
-                        .offset(y: showLoginElements ? 60 : 80) // Start 80 points down, move to 60 points down when showing
-                        
-                        Spacer()
-                            .frame(height: 240) // Add extra space at bottom to push content up less
                     }
+                    .padding(.horizontal)
+                    .opacity(showLoginElements ? 1 : 0)
+                    .offset(y: showLoginElements ? 60 : 80)
+                    
+                    Spacer()
+                        .frame(height: 240)
                 }
-                
-                // Sign Up View
-                if showSignUp {
-                    SignUpContentView(
-                        onComplete: { success in
-                            if success {
-                                onComplete(true)
-                            }
-                        },
-                        onDismiss: {
-                            withAnimation {
-                                showSignUp = false
-                            }
-                        }
-                    )
+                .contentShape(Rectangle()) // Make entire view tappable
+                .onTapGesture {
+                    focusedField = nil // Unfocus on tap outside
                 }
             }
         }
@@ -197,6 +237,11 @@ private struct LoginContentView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showForgotPassword) {
             Text("Forgot Password") // TODO: Implement ForgotPasswordView
+        }
+        .onChange(of: focusedField) { _ in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                backgroundOpacity = focusedField == nil ? 1.0 : 0.0
+            }
         }
     }
     
@@ -219,6 +264,54 @@ private struct LoginContentView: View {
         }
         
         isLoading = false
+    }
+    
+    private func signUp() async {
+        guard validateSignUpInputs() else { return }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            let result = try await AuthService.shared.signUp(email: email, password: password)
+            print("✅ SignUpView - User created successfully: \(result.user.uid)")
+            onComplete(true)
+        } catch let authError as AuthError {
+            errorMessage = authError.localizedDescription
+            onComplete(false)
+        } catch {
+            errorMessage = "An unexpected error occurred. Please try again."
+            onComplete(false)
+        }
+        
+        isLoading = false
+    }
+    
+    private func validateSignUpInputs() -> Bool {
+        // Validate email
+        if email.isEmpty {
+            errorMessage = "Please enter your email"
+            return false
+        }
+        
+        // Validate password
+        if password.isEmpty {
+            errorMessage = "Please enter a password"
+            return false
+        }
+        
+        if password.count < 6 {
+            errorMessage = "Password must be at least 6 characters"
+            return false
+        }
+        
+        // Validate password confirmation
+        if password != confirmPassword {
+            errorMessage = "Passwords do not match"
+            return false
+        }
+        
+        return true
     }
 }
 
