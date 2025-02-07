@@ -100,6 +100,11 @@ class VideoPlayerCell: UICollectionViewCell {
         interactionOverlay.addSubview(descriptionLabel)
         interactionOverlay.addSubview(interactionBar)
         
+        // Constants for layout
+        let tabBarHeight: CGFloat = 49 // Standard iOS tab bar height
+        let bottomPadding: CGFloat = 110 // Increased padding to move description up
+        let totalBottomOffset = tabBarHeight + bottomPadding
+        
         // Layout constraints
         NSLayoutConstraint.activate([
             playerView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -122,7 +127,7 @@ class VideoPlayerCell: UICollectionViewCell {
             
             descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             descriptionLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            descriptionLabel.bottomAnchor.constraint(equalTo: interactionOverlay.bottomAnchor, constant: -120)
+            descriptionLabel.bottomAnchor.constraint(equalTo: interactionOverlay.bottomAnchor, constant: -totalBottomOffset)
         ])
     }
     

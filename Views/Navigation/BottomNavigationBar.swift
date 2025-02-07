@@ -40,26 +40,29 @@ struct BottomNavigationBar: View {
                     ZStack {
                         // Bubble background
                         Circle()
-                            .fill(Color.black)
+                            .fill(Color(hex: "#ffc9ea").opacity(0.9)) // Soft sakura pink
                             .frame(width: 65, height: 65)
-                            .offset(x: width * CGFloat([Tab.home, Tab.create, Tab.profile].firstIndex(of: selectedTab)!) - geometry.size.width/2 + width/2)
+                            .offset(x: width * CGFloat([Tab.home, Tab.create, Tab.profile].firstIndex(of: selectedTab)!) - geometry.size.width/2 + width/2, y: 25)
                             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
                         
                         // Buttons
-                        HStack(spacing: 0) {
-                            ForEach([Tab.home, Tab.create, Tab.profile], id: \.self) { tab in
-                                TabButton(
-                                    tab: tab,
-                                    isSelected: selectedTab == tab,
-                                    namespace: animation,
-                                    action: {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                            selectedTab = tab
+                        VStack {
+                            HStack(spacing: 0) {
+                                ForEach([Tab.home, Tab.create, Tab.profile], id: \.self) { tab in
+                                    TabButton(
+                                        tab: tab,
+                                        isSelected: selectedTab == tab,
+                                        namespace: animation,
+                                        action: {
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                selectedTab = tab
+                                            }
                                         }
-                                    }
-                                )
-                                .frame(width: width)
+                                    )
+                                    .frame(width: width)
+                                }
                             }
+                            .offset(y: 25) // Add some padding from the bottom
                         }
                     }
                 }
@@ -83,9 +86,9 @@ private struct TabButton: View {
                         .font(.system(size: isSelected ? 22 : 20))
                         .foregroundColor(.white)
                         .frame(width: isSelected ? 50 : 40, height: isSelected ? 50 : 40)
-                        .background(Color.pink)
+                        .background(Color(hex: "#ffc9ea"))
                         .clipShape(Circle())
-                        .shadow(color: .pink.opacity(0.3), radius: isSelected ? 10 : 0)
+                        .shadow(color: Color(hex: "#ffc9ea").opacity(0.3), radius: isSelected ? 10 : 0)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
                 } else {
                     Image(systemName: tab.icon)

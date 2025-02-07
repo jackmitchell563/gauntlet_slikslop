@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// Custom NavigationController that hides status bar
+class FeedNavigationController: UINavigationController {
+    override var prefersStatusBarHidden: Bool {
+        return true
+    }
+    
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation {
+        return .fade
+    }
+}
+
 struct FeedView: UIViewControllerRepresentable {
     @Binding var selectedTab: BottomNavigationBar.Tab
     var selectedVideo: VideoMetadata?
@@ -9,7 +20,7 @@ struct FeedView: UIViewControllerRepresentable {
         if let video = selectedVideo {
             feedVC.setInitialVideo(video)
         }
-        let navController = UINavigationController(rootViewController: feedVC)
+        let navController = FeedNavigationController(rootViewController: feedVC)
         navController.setNavigationBarHidden(true, animated: false)
         return navController
     }

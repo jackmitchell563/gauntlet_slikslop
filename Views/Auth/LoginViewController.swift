@@ -11,6 +11,11 @@ class LoginViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var completion: ((Bool) -> Void)?
     
+    // Override status bar style
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        return .lightContent
+    }
+    
     // MARK: - UI Components
     
     private lazy var containerView: UIHostingController<LoginContentView> = {
@@ -82,82 +87,114 @@ private struct LoginContentView: View {
     @State private var errorMessage: String?
     @State private var showSignUp = false
     @State private var showForgotPassword = false
+    @State private var showLoginElements = false
+    
+    // Add offset state for logo movement
+    @State private var logoOffset: CGFloat = 0
     
     let onComplete: (Bool) -> Void
     
     // MARK: - Body
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Logo or App Name
-                Text("SlikSlop")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundColor(.customText)
-                    .padding(.top, 60)
-                
-                VStack(spacing: 16) {
-                    // Email field
-                    AuthTextField(
-                        title: "Email",
-                        placeholder: "Enter your email",
-                        text: $email,
-                        keyboardType: .emailAddress,
-                        textContentType: .emailAddress
-                    )
-                    
-                    // Password field
-                    AuthTextField(
-                        title: "Password",
-                        placeholder: "Enter your password",
-                        text: $password,
-                        isSecure: true,
-                        textContentType: .password
-                    )
-                    
-                    // Error message
-                    AuthErrorLabel(error: errorMessage)
-                }
-                
-                VStack(spacing: 12) {
-                    // Sign In button
-                    AuthButton(
-                        title: "Sign In",
-                        isLoading: isLoading
-                    ) {
-                        await signIn()
-                    }
-                    
-                    // Forgot Password button
-                    AuthSecondaryButton(title: "Forgot Password?") {
-                        showForgotPassword = true
-                    }
-                    
-                    // Sign Up button
-                    HStack {
-                        Text("Don't have an account?")
-                            .foregroundColor(.customSubtitle)
-                        
-                        AuthSecondaryButton(title: "Sign Up") {
-                            showSignUp = true
+        GeometryReader { geometry in
+            ZStack {
+                // Background with Sakura Animation
+                SakuraAnimation { 
+                    // Logo animation completed, wait 1 second then show login elements
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        withAnimation(.easeOut(duration: 0.5)) {
+                            showLoginElements = true
                         }
                     }
-                    .padding(.top, 8)
+                }
+                .allowsHitTesting(false)  // Prevent animation from blocking interaction
+                
+                // Sign In View
+                if !showSignUp {
+                    VStack {
+                        Spacer()
+                        
+                        VStack(spacing: 24) {
+                            VStack(spacing: 16) {
+                                // Email field
+                                AuthTextField(
+                                    title: "Email",
+                                    placeholder: "Enter your email",
+                                    text: $email,
+                                    keyboardType: .emailAddress,
+                                    textContentType: .emailAddress
+                                )
+                                
+                                // Password field
+                                AuthTextField(
+                                    title: "Password",
+                                    placeholder: "Enter your password",
+                                    text: $password,
+                                    isSecure: true,
+                                    textContentType: .password
+                                )
+                                
+                                // Error message
+                                AuthErrorLabel(error: errorMessage)
+                            }
+                            
+                            VStack(spacing: 12) {
+                                // Sign In button
+                                AuthButton(
+                                    title: "Sign In",
+                                    isLoading: isLoading
+                                ) {
+                                    await signIn()
+                                }
+                                
+                                // Forgot Password button
+                                AuthSecondaryButton(title: "Forgot Password?") {
+                                    showForgotPassword = true
+                                }
+                                
+                                // Sign Up button
+                                HStack {
+                                    Text("Don't have an account?")
+                                        .foregroundColor(.customSubtitle)
+                                    
+                                    AuthSecondaryButton(title: "Sign Up") {
+                                        withAnimation {
+                                            showSignUp = true
+                                        }
+                                    }
+                                }
+                                .padding(.top, 8)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .opacity(showLoginElements ? 1 : 0)
+                        .offset(y: showLoginElements ? 60 : 80) // Start 80 points down, move to 60 points down when showing
+                        
+                        Spacer()
+                            .frame(height: 240) // Add extra space at bottom to push content up less
+                    }
+                }
+                
+                // Sign Up View
+                if showSignUp {
+                    SignUpContentView(
+                        onComplete: { success in
+                            if success {
+                                onComplete(true)
+                            }
+                        },
+                        onDismiss: {
+                            withAnimation {
+                                showSignUp = false
+                            }
+                        }
+                    )
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 32)
         }
-        .background(Color.customBackground)
-        .sheet(isPresented: $showSignUp) {
-            SignUpView { success in
-                if success {
-                    showSignUp = false
-                    onComplete(true)
-                }
-            }
-        }
+        .background(Color.customBackground.ignoresSafeArea())
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $showForgotPassword) {
             Text("Forgot Password") // TODO: Implement ForgotPasswordView
         }
@@ -216,9 +253,14 @@ class SignUpViewController: UIViewController {
     // MARK: - UI Components
     
     private lazy var containerView: UIHostingController<SignUpContentView> = {
-        let contentView = SignUpContentView { [weak self] success in
-            self?.handleAuthResult(success)
-        }
+        let contentView = SignUpContentView(
+            onComplete: { [weak self] success in
+                self?.handleAuthResult(success)
+            },
+            onDismiss: { [weak self] in
+                self?.dismiss(animated: true)
+            }
+        )
         let hostingController = UIHostingController(rootView: contentView)
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -283,9 +325,9 @@ private struct SignUpContentView: View {
     @State private var confirmPassword = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @Environment(\.dismiss) private var dismiss
     
     let onComplete: (Bool) -> Void
+    let onDismiss: () -> Void
     
     // MARK: - Body
     
@@ -352,7 +394,7 @@ private struct SignUpContentView: View {
                             .foregroundColor(.customSubtitle)
                         
                         AuthSecondaryButton(title: "Sign In") {
-                            dismiss()
+                            onDismiss()
                         }
                     }
                     .padding(.top, 8)

@@ -47,6 +47,9 @@ class FeedViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         
+        // Ensure status bar updates
+        setNeedsStatusBarAppearanceUpdate()
+        
         Task {
             do {
                 if let userId = AuthService.shared.currentUserId {
@@ -89,6 +92,12 @@ class FeedViewController: UIViewController {
                 self.collectionView.reloadData()
                 self.loadingIndicator.stopAnimating()
                 
+                // Ensure we're at the top
+                self.collectionView.setContentOffset(.zero, animated: false)
+                
+                // Force layout update
+                self.collectionView.layoutIfNeeded()
+                
                 // Start playing the first video
                 if !initialVideos.isEmpty {
                     self.playVisibleVideos()
@@ -102,8 +111,20 @@ class FeedViewController: UIViewController {
         }
     }
     
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Ensure content offset is correct after layout
+        if !videos.isEmpty && collectionView.contentOffset.y != 0 {
+            collectionView.setContentOffset(.zero, animated: false)
+        }
+    }
+    
     override var prefersStatusBarHidden: Bool {
         return true
+    }
+    
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation {
+        return .fade
     }
     
     // MARK: - Setup

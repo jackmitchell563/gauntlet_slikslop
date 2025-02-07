@@ -18,11 +18,27 @@ struct SlikSlopApp: App {
         // Sign out any existing user
         print("🔐 SlikSlopApp - Signing out any existing user")
         try? AuthService.shared.signOut()
+        
+        // Configure status bar appearance for the entire app
+        UIApplication.shared.windows.first?.overrideUserInterfaceStyle = .dark
+        
+        // // Development only: Populate characters
+        // #if DEBUG
+        // Task {
+        //     do {
+        //         let populator = CharacterDataPopulator()
+        //         try await populator.populateCharacters()
+        //     } catch {
+        //         print("❌ Error populating characters: \(error)")
+        //     }
+        // }
+        // #endif
     }
     
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
         }
     }
 }
