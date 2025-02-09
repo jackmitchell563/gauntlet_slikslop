@@ -12,6 +12,7 @@ class CommentViewController: UIViewController {
     private var lastCommentTimestamp: Timestamp?
     private var isLoading = false
     private let commentService = CommentService.shared
+    private var hasMoreComments = true  // Add flag to track if more comments are available
     
     // MARK: - UI Components
     
@@ -142,7 +143,7 @@ class CommentViewController: UIViewController {
     // MARK: - Data Loading
     
     private func loadComments() {
-        guard !isLoading else { return }
+        guard !isLoading && hasMoreComments else { return }  // Check both flags
         isLoading = true
         loadingIndicator.startAnimating()
         
@@ -154,15 +155,23 @@ class CommentViewController: UIViewController {
                 )
                 
                 await MainActor.run {
-                    if self.comments.isEmpty {
-                        // First load
-                        self.comments = fetchedComments
+                    if fetchedComments.isEmpty {
+                        // No more comments to load
+                        hasMoreComments = false
                     } else {
-                        // Pagination
-                        self.comments.append(contentsOf: fetchedComments)
+                        if self.comments.isEmpty {
+                            // First load
+                            self.comments = fetchedComments
+                        } else {
+                            // Pagination - check for duplicates
+                            let newComments = fetchedComments.filter { newComment in
+                                !self.comments.contains { $0.id == newComment.id }
+                            }
+                            self.comments.append(contentsOf: newComments)
+                        }
+                        self.lastCommentTimestamp = fetchedComments.last?.createdAt
                     }
                     
-                    self.lastCommentTimestamp = fetchedComments.last?.createdAt
                     self.updateUI()
                     self.isLoading = false
                     self.loadingIndicator.stopAnimating()

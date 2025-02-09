@@ -13,6 +13,8 @@ class CharacterChatService {
     
     // Message history cache
     private var messageCache: [String: [ChatMessage]] = [:]
+    // Relationship status cache
+    private var relationshipCache: [String: Int] = [:]
     
     // MARK: - Types
     
@@ -20,6 +22,7 @@ class CharacterChatService {
         case invalidCharacter
         case messageGenerationFailed
         case persistenceFailed
+        case relationshipError
         
         var errorDescription: String? {
             switch self {
@@ -29,6 +32,8 @@ class CharacterChatService {
                 return "Failed to generate character response"
             case .persistenceFailed:
                 return "Failed to save chat message"
+            case .relationshipError:
+                return "Failed to manage relationship status"
             }
         }
     }
@@ -50,8 +55,16 @@ class CharacterChatService {
     ) async throws -> ChatMessage {
         print("📱 CharacterChatService - Sending message to character: \(character.name)")
         
-        // Get the next sequence number
+        let userId = AuthService.shared.currentUserId ?? ""
         let chatId = getChatId(for: character)
+        
+        // Get current relationship status
+        let relationshipStatus = try await getRelationshipStatus(
+            userId: userId,
+            characterId: character.id
+        )
+        
+        // Get the next sequence number
         let nextSequence = (messageCache[chatId]?.last?.sequence ?? 0) + 1
         
         // Create user message
@@ -67,10 +80,18 @@ class CharacterChatService {
         var messages = messageCache[chatId] ?? []
         messages.append(userMessage)
         
-        // Generate character response
-        let responseText = try await openAI.generateResponse(
+        // Generate character response with relationship status
+        let (responseText, relationshipChange) = try await openAI.generateResponse(
             messages: messages,
-            character: character
+            character: character,
+            relationshipStatus: relationshipStatus
+        )
+        
+        // Update relationship status
+        try await updateRelationshipStatus(
+            userId: userId,
+            characterId: character.id,
+            change: relationshipChange
         )
         
         // Create response message with next sequence
@@ -156,6 +177,64 @@ class CharacterChatService {
         return messages
     }
     
+    /// Gets the current relationship status between a user and character
+    /// - Parameters:
+    ///   - userId: The user's ID
+    ///   - characterId: The character's ID
+    /// - Returns: Current relationship status (-1000 to 1000)
+    func getRelationshipStatus(userId: String, characterId: String) async throws -> Int {
+        print("📱 CharacterChatService - Getting relationship status for user: \(userId) with character: \(characterId)")
+        
+        let chatId = "\(userId)_\(characterId)"
+        
+        // Check cache first
+        if let cached = relationshipCache[chatId] {
+            print("📱 CharacterChatService - Returning cached relationship status")
+            return cached
+        }
+        
+        // Get from Firestore
+        let docRef = db.collection("chats").document(chatId)
+        let doc = try await docRef.getDocument()
+        
+        if let status = doc.data()?["relationship_status"] as? Int {
+            // Update cache
+            relationshipCache[chatId] = status
+            return status
+        }
+        
+        // If no status exists, initialize it
+        try await initializeChat(userId: userId, characterId: characterId)
+        return 0
+    }
+    
+    /// Updates the relationship status between a user and character
+    /// - Parameters:
+    ///   - userId: The user's ID
+    ///   - characterId: The character's ID
+    ///   - change: The change in relationship value (-250 to 50)
+    func updateRelationshipStatus(userId: String, characterId: String, change: Int) async throws {
+        print("📱 CharacterChatService - Updating relationship status for user: \(userId) with character: \(characterId)")
+        
+        let chatId = "\(userId)_\(characterId)"
+        
+        // Get current status
+        let currentStatus = try await getRelationshipStatus(userId: userId, characterId: characterId)
+        
+        // Calculate new status with bounds
+        let newStatus = max(-1000, min(1000, currentStatus + change))
+        
+        // Update Firestore
+        try await db.collection("chats").document(chatId).setData([
+            "relationship_status": newStatus
+        ], merge: true)
+        
+        // Update cache
+        relationshipCache[chatId] = newStatus
+        
+        print("📱 CharacterChatService - Relationship status updated to: \(newStatus)")
+    }
+    
     // MARK: - Private Methods
     
     private func getChatId(for character: GameCharacter) -> String {
@@ -183,9 +262,25 @@ class CharacterChatService {
             ])
     }
     
-    /// Clears the message cache
+    /// Clears all caches
     func clearCache() {
-        print("📱 CharacterChatService - Clearing message cache")
+        print("📱 CharacterChatService - Clearing all caches")
         messageCache.removeAll()
+        relationshipCache.removeAll()
+    }
+    
+    /// Initializes a new chat with default relationship status
+    private func initializeChat(userId: String, characterId: String) async throws {
+        print("📱 CharacterChatService - Initializing chat for user: \(userId) with character: \(characterId)")
+        
+        let chatId = "\(userId)_\(characterId)"
+        try await db.collection("chats").document(chatId).setData([
+            "relationship_status": 0
+        ], merge: true)
+        
+        // Update cache
+        relationshipCache[chatId] = 0
+        
+        print("📱 CharacterChatService - Chat initialized successfully")
     }
 } 

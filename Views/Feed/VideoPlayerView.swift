@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import Network
 
 protocol VideoPlayerViewDelegate: AnyObject {
     func videoPlayerViewDidTapToTogglePlayback(_ view: VideoPlayerView)
@@ -15,6 +16,33 @@ class VideoPlayerView: UIView {
     private var isPlaying = false
     private var iconFadeWorkItem: DispatchWorkItem?
     private var isFirstCell = false
+    private var originalURL: URL?
+    
+    /// Quality levels for video playback
+    enum VideoQuality {
+        case auto    // Automatically determine based on network conditions
+        case low     // 480p or lower
+        case medium  // 720p
+        case high    // Original quality
+        
+        var maxHeight: Int? {
+            switch self {
+            case .auto: return nil
+            case .low: return 480
+            case .medium: return 720
+            case .high: return nil
+            }
+        }
+    }
+    
+    /// Current video quality setting
+    private var currentQuality: VideoQuality = .auto {
+        didSet {
+            if oldValue != currentQuality {
+                reloadWithCurrentQuality()
+            }
+        }
+    }
     
     private lazy var tapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -99,13 +127,63 @@ class VideoPlayerView: UIView {
     
     func configure(with url: URL, isFirstCell: Bool = false) {
         self.isFirstCell = isFirstCell
+        self.originalURL = url
         loadingIndicator.startAnimating()
         
         // Clean up existing player if any
         cleanup()
         
+        // Determine initial quality based on network conditions
+        determineInitialQuality { [weak self] quality in
+            self?.currentQuality = quality
+            self?.setupPlayerWithQuality(quality)
+        }
+    }
+    
+    private func determineInitialQuality(completion: @escaping (VideoQuality) -> Void) {
+        print("📹 VideoPlayerView - Starting quality determination...")
+        // Get network conditions using NWPathMonitor
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            monitor.cancel()
+            
+            DispatchQueue.main.async {
+                print("📹 VideoPlayerView - Network status: \(path.status)")
+                print("📹 VideoPlayerView - Is expensive: \(path.isExpensive)")
+                
+                if path.status == .satisfied {
+                    switch path.isExpensive {
+                    case true:
+                        print("📹 VideoPlayerView - Using low quality due to expensive network")
+                        completion(.low)
+                    case false:
+                        print("📹 VideoPlayerView - Using auto quality due to unrestricted network")
+                        completion(.auto)
+                    }
+                } else {
+                    print("📹 VideoPlayerView - Using low quality due to poor connectivity")
+                    completion(.low)
+                }
+            }
+        }
+        monitor.start(queue: .global(qos: .userInitiated))
+    }
+    
+    private func setupPlayerWithQuality(_ quality: VideoQuality) {
+        guard let url = originalURL else {
+            print("❌ VideoPlayerView - No original URL available")
+            return
+        }
+        
+        print("📹 VideoPlayerView - Setting up player with quality: \(quality)")
+        
+        // Apply quality restrictions if needed
+        let finalURL = modifyURLForQuality(url, quality: quality)
+        print("📹 VideoPlayerView - Original URL: \(url)")
+        print("📹 VideoPlayerView - Modified URL: \(finalURL)")
+        
         // Create new player
-        let playerItem = AVPlayerItem(url: url)
+        let playerItem = AVPlayerItem(url: finalURL)
         player = AVPlayer(playerItem: playerItem)
         playerLayer = AVPlayerLayer(player: player)
         playerLayer?.videoGravity = .resizeAspectFill
@@ -116,6 +194,50 @@ class VideoPlayerView: UIView {
         
         // Add observers
         setupObservers(for: playerItem)
+    }
+    
+    private func modifyURLForQuality(_ url: URL, quality: VideoQuality) -> URL {
+        guard let maxHeight = quality.maxHeight else {
+            return url // Return original URL for auto or high quality
+        }
+        
+        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: true)
+        
+        // Add or modify quality parameter based on URL type
+        if url.absoluteString.contains("youtube.com") {
+            // YouTube-style quality parameter
+            let existingItems = urlComponents?.queryItems ?? []
+            let qualityItem = URLQueryItem(name: "quality", value: "hd\(maxHeight)")
+            urlComponents?.queryItems = existingItems + [qualityItem]
+        } else if url.absoluteString.contains("cloudfront.net") || url.absoluteString.contains("amazonaws.com") {
+            // AWS/CloudFront style parameter
+            let existingItems = urlComponents?.queryItems ?? []
+            let heightItem = URLQueryItem(name: "height", value: String(maxHeight))
+            urlComponents?.queryItems = existingItems + [heightItem]
+        }
+        
+        return urlComponents?.url ?? url
+    }
+    
+    private func reloadWithCurrentQuality() {
+        guard let url = originalURL else { return }
+        
+        // Store current playback time
+        let currentTime = player?.currentTime()
+        
+        // Clean up existing player
+        cleanup()
+        
+        // Setup new player with current quality
+        setupPlayerWithQuality(currentQuality)
+        
+        // Restore playback position and state
+        if let time = currentTime {
+            player?.seek(to: time)
+        }
+        if isPlaying {
+            player?.play()
+        }
     }
     
     private func setupObservers(for playerItem: AVPlayerItem) {
@@ -195,17 +317,26 @@ class VideoPlayerView: UIView {
                 status = .unknown
             }
             
+            print("📹 VideoPlayerView - Player status changed to: \(status)")
+            
             switch status {
             case .readyToPlay:
+                print("📹 VideoPlayerView - Ready to play, isFirstCell: \(isFirstCell)")
                 loadingIndicator.stopAnimating()
                 if isFirstCell {
+                    print("📹 VideoPlayerView - Auto-playing first cell")
                     play()
                 }
             case .failed:
-                print("Failed to load video")
+                if let error = player?.currentItem?.error {
+                    print("❌ VideoPlayerView - Failed to load video: \(error)")
+                } else {
+                    print("❌ VideoPlayerView - Failed to load video with unknown error")
+                }
             case .unknown:
-                print("Unknown player status")
+                print("❓ VideoPlayerView - Unknown player status")
             @unknown default:
+                print("❓ VideoPlayerView - Unhandled player status")
                 break
             }
         }
@@ -236,5 +367,19 @@ class VideoPlayerView: UIView {
     
     deinit {
         cleanup()
+    }
+    
+    // MARK: - Quality Control
+    
+    /// Changes the video quality
+    /// - Parameter quality: The desired quality level
+    func setQuality(_ quality: VideoQuality) {
+        currentQuality = quality
+    }
+    
+    /// Gets the current video quality
+    /// - Returns: The current quality setting
+    func getCurrentQuality() -> VideoQuality {
+        return currentQuality
     }
 } 

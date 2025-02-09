@@ -15,6 +15,14 @@ struct FeedView: UIViewControllerRepresentable {
     @Binding var selectedTab: BottomNavigationBar.Tab
     var selectedVideo: VideoMetadata?
     
+    class Coordinator {
+        var lastInitialVideo: VideoMetadata?
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
     func makeUIViewController(context: Context) -> UINavigationController {
         let feedVC = FeedViewController()
         if let video = selectedVideo {
@@ -31,10 +39,13 @@ struct FeedView: UIViewControllerRepresentable {
         if let feedVC = uiViewController.viewControllers.first as? FeedViewController {
             feedVC.handleTabVisibilityChange(isVisible: isVisible)
             
-            // Update initial video if changed
-            if let video = selectedVideo {
+            // Only reload feed if we have a new initial video AND we're switching to the home tab
+            if let video = selectedVideo, 
+               isVisible, // Only reload when becoming visible
+               context.coordinator.lastInitialVideo?.id != video.id { // Only reload if video changed
                 feedVC.setInitialVideo(video)
                 feedVC.reloadFeed()
+                context.coordinator.lastInitialVideo = video
             }
         }
     }

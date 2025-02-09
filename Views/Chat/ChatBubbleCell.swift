@@ -29,12 +29,15 @@ class ChatBubbleCell: UICollectionViewCell {
     
     private lazy var timestampLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 12)
+        label.font = .systemFont(ofSize: 9)
         label.textColor = .secondaryLabel
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
+    
+    private var avatarConstraints: [NSLayoutConstraint] = []
+    private var bubbleConstraints: [NSLayoutConstraint] = []
     
     // MARK: - Initialization
     
@@ -75,6 +78,21 @@ class ChatBubbleCell: UICollectionViewCell {
         ])
     }
     
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        
+        // Remove existing constraints
+        NSLayoutConstraint.deactivate(avatarConstraints)
+        NSLayoutConstraint.deactivate(bubbleConstraints)
+        avatarConstraints.removeAll()
+        bubbleConstraints.removeAll()
+        
+        // Reset images and text
+        avatarImageView.image = nil
+        timestampLabel.text = nil
+        bubbleView.removeFromSuperview()
+    }
+    
     // MARK: - Configuration
     
     func configure(with message: ChatMessage, profileImageURL: String? = nil) {
@@ -83,12 +101,19 @@ class ChatBubbleCell: UICollectionViewCell {
         timestampLabel.text = timestamp
         
         // Remove any existing constraints
+        NSLayoutConstraint.deactivate(avatarConstraints)
+        NSLayoutConstraint.deactivate(bubbleConstraints)
+        avatarConstraints.removeAll()
+        bubbleConstraints.removeAll()
+        
         bubbleView.removeFromSuperview()
         contentView.addSubview(bubbleView)
         
         if message.sender == .user {
             // User message styling - right aligned
-            avatarContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).isActive = true
+            let avatarConstraint = avatarContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+            avatarConstraints = [avatarConstraint]
+            avatarConstraint.isActive = true
             
             // Set user avatar
             if let currentUser = FirebaseConfig.getAuthInstance().currentUser,
@@ -109,17 +134,21 @@ class ChatBubbleCell: UICollectionViewCell {
             }
             
             // Right-aligned bubble
-            NSLayoutConstraint.activate([
+            bubbleConstraints = [
                 bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor),
                 bubbleView.trailingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -12),
-                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75)
-            ])
+                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
+                bubbleView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+            ]
+            NSLayoutConstraint.activate(bubbleConstraints)
             
             bubbleView.configure(with: message, isUser: true)
             
         } else {
             // AI message styling - left aligned
-            avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16).isActive = true
+            let avatarConstraint = avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+            avatarConstraints = [avatarConstraint]
+            avatarConstraint.isActive = true
             
             // Load AI profile image
             if let profileURLString = profileImageURL,
@@ -140,11 +169,13 @@ class ChatBubbleCell: UICollectionViewCell {
             }
             
             // Left-aligned bubble
-            NSLayoutConstraint.activate([
+            bubbleConstraints = [
                 bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor),
                 bubbleView.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 12),
-                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75)
-            ])
+                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
+                bubbleView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+            ]
+            NSLayoutConstraint.activate(bubbleConstraints)
             
             bubbleView.configure(with: message, isUser: false)
         }
@@ -153,7 +184,7 @@ class ChatBubbleCell: UICollectionViewCell {
     // MARK: - Size Calculation
     
     static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
-        let bubbleSize = ChatBubbleView.size(for: message, width: width - 32)
+        let bubbleSize = ChatBubbleView.size(for: message, width: width * 0.75)  // Use 75% of width
         let avatarHeight: CGFloat = 48 // Avatar height
         let timestampHeight: CGFloat = 20 // Font size (12) + padding
         let totalHeight = max(bubbleSize.height, avatarHeight + timestampHeight + 4) // 4 is spacing between avatar and timestamp
@@ -226,9 +257,8 @@ class ChatBubbleView: UIView {
     // MARK: - Size Calculation
     
     static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
-        let maxWidth = width * 0.75 // Maximum 75% of container width
         let messageInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        let availableWidth = maxWidth - messageInsets.left - messageInsets.right
+        let availableWidth = width - messageInsets.left - messageInsets.right
         
         let textSize = NSString(string: message.text).boundingRect(
             with: CGSize(width: availableWidth, height: .greatestFiniteMagnitude),
@@ -238,7 +268,7 @@ class ChatBubbleView: UIView {
         ).size
         
         let height = ceil(textSize.height) + messageInsets.top + messageInsets.bottom
-        return CGSize(width: width, height: height)
+        return CGSize(width: ceil(textSize.width) + messageInsets.left + messageInsets.right, height: height)
     }
 }
 

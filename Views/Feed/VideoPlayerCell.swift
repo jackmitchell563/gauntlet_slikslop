@@ -332,7 +332,7 @@ extension VideoPlayerCell: VideoInteractionDelegate {
             }
             let mediumDetent = UISheetPresentationController.Detent.medium()
             
-            sheet.detents = [mediumDetent, customDetent]
+            sheet.detents = [customDetent, mediumDetent]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
@@ -370,7 +370,7 @@ extension VideoPlayerCell: VideoInteractionDelegate {
             }
             let mediumDetent = UISheetPresentationController.Detent.medium()
             
-            sheet.detents = [mediumDetent, customDetent]
+            sheet.detents = [customDetent, mediumDetent]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
@@ -394,24 +394,28 @@ extension VideoPlayerCell: VideoInteractionDelegate {
         // Create and present the character selection view controller
         let selectionVC = CharacterSelectionViewController()
         selectionVC.modalPresentationStyle = .pageSheet
-        selectionVC.delegate = self // Set the delegate
+        selectionVC.delegate = self
         
         if let sheet = selectionVC.sheetPresentationController {
             // Create a custom detent that's 1 point smaller than maximum height
             let customDetent = UISheetPresentationController.Detent.custom { context in
                 return context.maximumDetentValue - 1
             }
-            let mediumDetent = UISheetPresentationController.Detent.medium()
             
-            sheet.detents = [mediumDetent, customDetent]
+            sheet.detents = [customDetent]  // Only use the large custom detent
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.prefersEdgeAttachedInCompactHeight = true
-            sheet.delegate = self // Set sheet delegate
+            sheet.delegate = self
             
             if #available(iOS 15.0, *) {
                 sheet.preferredCornerRadius = 15.0
             }
+        }
+        
+        // Notify FeedViewController about sheet presentation
+        if let feedVC = parentViewController as? FeedViewController {
+            feedVC.willPresentSheet()
         }
         
         parentViewController?.present(selectionVC, animated: true)
@@ -457,6 +461,10 @@ extension VideoPlayerCell: CharacterSelectionDelegate {
 extension VideoPlayerCell: UISheetPresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         print("📱 VideoPlayerCell - Sheet dismissed, resuming video playback")
+        // Notify FeedViewController about sheet dismissal
+        if let feedVC = parentViewController as? FeedViewController {
+            feedVC.didDismissSheet()
+        }
         play()
     }
 }

@@ -15,6 +15,7 @@ class FeedViewController: UIViewController {
     private var isVisible = true
     private var isScrolling = false
     private var initialVideo: VideoMetadata?
+    private var isPresenting = false
     
     // MARK: - UI Components
     
@@ -113,8 +114,8 @@ class FeedViewController: UIViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Ensure content offset is correct after layout
-        if !videos.isEmpty && collectionView.contentOffset.y != 0 {
+        // Only reset scroll position if not presenting a sheet and not during initial load
+        if !videos.isEmpty && collectionView.contentOffset.y != 0 && !isPresenting {
             collectionView.setContentOffset(.zero, animated: false)
         }
     }
@@ -256,6 +257,16 @@ class FeedViewController: UIViewController {
         Task {
             await loadInitialContent()
         }
+    }
+    
+    // Add method to handle sheet presentation
+    func willPresentSheet() {
+        isPresenting = true
+    }
+    
+    // Add method to handle sheet dismissal
+    func didDismissSheet() {
+        isPresenting = false
     }
 }
 

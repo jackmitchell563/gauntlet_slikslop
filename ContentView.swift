@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import FirebaseFirestore
 
 struct ContentView: View {
     @State private var feedType: TopNavigationBar.FeedType = .forYou
@@ -46,6 +47,7 @@ struct ContentView: View {
                                     print("Search tapped")
                                 }
                             )
+                            .padding(.top, (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0)
                             
                             Spacer()
                         }
@@ -75,7 +77,9 @@ struct ContentView: View {
                         // If the gesture is primarily horizontal (within 45 degrees of horizontal)
                         if horizontalAmount > verticalAmount {
                             // Prevent scrolling by setting userInteractionEnabled to false
-                            if let feedVC = UIApplication.shared.windows.first?.rootViewController?.children.first as? UINavigationController,
+                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                               let window = windowScene.windows.first,
+                               let feedVC = window.rootViewController?.children.first as? UINavigationController,
                                let collectionView = feedVC.viewControllers.first?.view.subviews.first(where: { $0 is UICollectionView }) as? UICollectionView {
                                 collectionView.isScrollEnabled = false
                             }
@@ -83,7 +87,9 @@ struct ContentView: View {
                     }
                     .onEnded { gesture in
                         // Re-enable scrolling
-                        if let feedVC = UIApplication.shared.windows.first?.rootViewController?.children.first as? UINavigationController,
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let window = windowScene.windows.first,
+                           let feedVC = window.rootViewController?.children.first as? UINavigationController,
                            let collectionView = feedVC.viewControllers.first?.view.subviews.first(where: { $0 is UICollectionView }) as? UICollectionView {
                             collectionView.isScrollEnabled = true
                         }
@@ -178,28 +184,153 @@ class ProfileNavigationController: UINavigationController {
 }
 
 // MARK: - Create View
-struct CreateView: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let createVC = UIViewController()
-        createVC.view.backgroundColor = .black
-        let button = UIButton(type: .system)
-        button.setTitle("Show Test Interface", for: .normal)
-        button.tintColor = .white
-        button.translatesAutoresizingMaskIntoConstraints = false
-        createVC.view.addSubview(button)
-        
-        NSLayoutConstraint.activate([
-            button.centerXAnchor.constraint(equalTo: createVC.view.centerXAnchor),
-            button.centerYAnchor.constraint(equalTo: createVC.view.centerYAnchor)
-        ])
-        
-        let navController = CreateNavigationController(rootViewController: createVC)
-        navController.setNavigationBarHidden(true, animated: false)
-        return navController
+struct CreateView: View {
+    @State private var title: String = ""
+    @State private var description: String = ""
+    @State private var url: String = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String? = nil
+    
+    private let feedService = FeedService.shared
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 24) {
+                    // Input Fields
+                    VStack(spacing: 16) {
+                        InputField(
+                            title: "Video Title",
+                            text: $title,
+                            placeholder: "Enter video title"
+                        )
+                        
+                        InputField(
+                            title: "Description",
+                            text: $description,
+                            placeholder: "Enter video description",
+                            isMultiline: true
+                        )
+                        
+                        InputField(
+                            title: "Video URL",
+                            text: $url,
+                            placeholder: "Enter video URL"
+                        )
+                    }
+                    .padding(.horizontal)
+                    
+                    // Create Button
+                    Button(action: createVideo) {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                        } else {
+                            Text("Create")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.white)
+                    .foregroundColor(.black)
+                    .cornerRadius(25)
+                    .padding(.horizontal)
+                    .disabled(isLoading || !isValidInput)
+                    
+                    if let error = errorMessage {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                            .padding(.horizontal)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.top, 32)
+            }
+            .navigationBarHidden(true)
+        }
     }
     
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
-        // No updates needed
+    private var isValidInput: Bool {
+        !title.isEmpty && 
+        !description.isEmpty && 
+        !url.isEmpty &&
+        URL(string: url) != nil
+    }
+    
+    private func createVideo() {
+        guard let url = URL(string: url) else {
+            errorMessage = "Invalid URL"
+            return
+        }
+        
+        guard let creatorId = AuthService.shared.currentUserId else {
+            errorMessage = "You must be logged in to create videos"
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                // Create video with our input data
+                let video = try await feedService.createVideo(
+                    title: title,
+                    description: description,
+                    url: url.absoluteString,
+                    creatorId: creatorId
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    // Reset form
+                    title = ""
+                    description = ""
+                    self.url = ""
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Input Field
+private struct InputField: View {
+    let title: String
+    @Binding var text: String
+    let placeholder: String
+    var isMultiline: Bool = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .foregroundColor(.white)
+                .font(.system(size: 14, weight: .medium))
+            
+            if isMultiline {
+                TextEditor(text: $text)
+                    .frame(height: 100)
+                    .padding(12)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(12)
+                    .foregroundColor(.white)
+            } else {
+                TextField(placeholder, text: $text)
+                    .padding(12)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(12)
+                    .foregroundColor(.white)
+            }
+        }
     }
 }
 

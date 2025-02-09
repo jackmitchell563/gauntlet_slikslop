@@ -50,9 +50,12 @@ struct TopNavigationBar: View {
             }
             .padding(.trailing, 16)
         }
+        .padding(.top, -40)
+        .frame(height: 100)
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [
+                    Color.black.opacity(0.8),
                     Color.black.opacity(0.6),
                     Color.black.opacity(0)
                 ]),

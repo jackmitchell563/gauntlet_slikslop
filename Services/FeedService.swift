@@ -131,4 +131,30 @@ class FeedService {
         let snapshot = try await docRef.getDocument()
         return try VideoMetadata.from(snapshot)
     }
+    
+    /// Creates a video with custom metadata
+    /// - Parameters:
+    ///   - title: The title of the video
+    ///   - description: The description of the video
+    ///   - url: The URL of the video
+    ///   - creatorId: The ID of the creator
+    /// - Returns: The created video's metadata
+    func createVideo(title: String, description: String, url: String, creatorId: String) async throws -> VideoMetadata {
+        let videoData: [String: Any] = [
+            "creatorId": creatorId,
+            "url": url,
+            "thumbnail": "",  // Will be generated later
+            "title": title,
+            "description": description,
+            "tags": [],
+            "likes": 0,
+            "comments": 0,
+            "shares": 0,
+            "createdAt": Timestamp(date: Date())
+        ]
+        
+        let docRef = try await db.collection(videosCollection).addDocument(data: videoData)
+        let snapshot = try await docRef.getDocument()
+        return try VideoMetadata.from(snapshot)
+    }
 } 

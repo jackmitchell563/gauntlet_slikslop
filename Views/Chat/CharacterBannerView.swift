@@ -6,8 +6,21 @@ class CharacterBannerView: UIView {
     
     private let character: GameCharacter
     private var isImageLoaded = false
+    private var relationshipStatus: Int = 0
     
     // MARK: - UI Components
+    
+    private lazy var profileContainerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private lazy var relationshipStatusView: RelationshipStatusView = {
+        let view = RelationshipStatusView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
     
     private lazy var profileImageView: UIImageView = {
         let iv = UIImageView()
@@ -44,6 +57,15 @@ class CharacterBannerView: UIView {
         return label
     }()
     
+    private lazy var relationshipLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 14)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
     // MARK: - Initialization
     
     init(character: GameCharacter) {
@@ -63,10 +85,13 @@ class CharacterBannerView: UIView {
         backgroundColor = .systemBackground
         
         // Add subviews
-        addSubview(profileImageView)
-        addSubview(loadingIndicator)
+        addSubview(profileContainerView)
+        profileContainerView.addSubview(relationshipStatusView)
+        profileContainerView.addSubview(profileImageView)
+        profileContainerView.addSubview(loadingIndicator)
         addSubview(nameLabel)
         addSubview(gameLabel)
+        addSubview(relationshipLabel)
         
         // Configure labels
         nameLabel.text = character.name
@@ -74,22 +99,39 @@ class CharacterBannerView: UIView {
         
         // Setup constraints
         NSLayoutConstraint.activate([
-            profileImageView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            profileImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            // Profile container view
+            profileContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            profileContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            profileContainerView.widthAnchor.constraint(equalToConstant: 120),  // Larger to accommodate relationship circle
+            profileContainerView.heightAnchor.constraint(equalToConstant: 120),
+            
+            // Relationship status view (larger circle)
+            relationshipStatusView.centerXAnchor.constraint(equalTo: profileContainerView.centerXAnchor),
+            relationshipStatusView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
+            relationshipStatusView.widthAnchor.constraint(equalTo: profileContainerView.widthAnchor),
+            relationshipStatusView.heightAnchor.constraint(equalTo: profileContainerView.heightAnchor),
+            
+            // Profile image view (smaller circle)
+            profileImageView.centerXAnchor.constraint(equalTo: profileContainerView.centerXAnchor),
+            profileImageView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
             profileImageView.widthAnchor.constraint(equalToConstant: 100),
             profileImageView.heightAnchor.constraint(equalToConstant: 100),
             
             loadingIndicator.centerXAnchor.constraint(equalTo: profileImageView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: profileImageView.centerYAnchor),
             
-            nameLabel.topAnchor.constraint(equalTo: profileImageView.bottomAnchor, constant: 12),
+            nameLabel.topAnchor.constraint(equalTo: profileContainerView.bottomAnchor, constant: 12),
             nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             
             gameLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
             gameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             gameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            gameLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
+            
+            relationshipLabel.topAnchor.constraint(equalTo: gameLabel.bottomAnchor, constant: 4),
+            relationshipLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            relationshipLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            relationshipLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
         ])
         
         // Start loading animation
@@ -131,5 +173,16 @@ class CharacterBannerView: UIView {
         } else {
             print("❌ CharacterBannerView - Failed to preload profile for: \(character.name)")
         }
+    }
+    
+    func updateRelationshipStatus(_ status: Int) {
+        relationshipStatus = status
+        relationshipStatusView.relationshipValue = status
+        
+        // Update relationship label text
+        let percentage = Double(status) / 10.0
+        let descriptor = RelationshipStatusView.RelationshipDescriptor.from(percentage: percentage)
+        relationshipLabel.text = String(format: "%.1f%% - %@", percentage, descriptor.rawValue)
+        relationshipLabel.textColor = percentage >= 0 ? .systemGreen : .systemRed
     }
 } 

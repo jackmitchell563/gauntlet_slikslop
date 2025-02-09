@@ -7,6 +7,7 @@ class ChatViewController: UIViewController {
     private let character: GameCharacter
     private var messages: [ChatMessage] = []
     private let chatService = CharacterChatService.shared
+    private var relationshipStatus: Int = 0
     
     // Loading state
     private var isLoading = false {
@@ -71,6 +72,7 @@ class ChatViewController: UIViewController {
         setupUI()
         setupKeyboardObservers()
         loadChatHistory()
+        loadRelationshipStatus()
         
         // Configure sheet presentation behavior
         if let sheet = sheetPresentationController {
@@ -111,7 +113,7 @@ class ChatViewController: UIViewController {
             bannerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             bannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bannerView.heightAnchor.constraint(equalToConstant: 200),
+            bannerView.heightAnchor.constraint(equalToConstant: 250),  // Increased height to accommodate relationship text
             
             collectionView.topAnchor.constraint(equalTo: bannerView.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -183,6 +185,32 @@ class ChatViewController: UIViewController {
         }
     }
     
+    // MARK: - Relationship Status
+    
+    private func loadRelationshipStatus() {
+        Task {
+            do {
+                relationshipStatus = try await chatService.getRelationshipStatus(
+                    userId: AuthService.shared.currentUserId ?? "",
+                    characterId: character.id
+                )
+                print("📱 ChatViewController - Loaded relationship status: \(relationshipStatus)")
+                await MainActor.run {
+                    updateRelationshipUI()
+                }
+            } catch {
+                print("❌ ChatViewController - Error loading relationship status: \(error)")
+            }
+        }
+    }
+    
+    private func updateRelationshipUI() {
+        print("📱 ChatViewController - Updating UI with relationship status: \(relationshipStatus)")
+        DispatchQueue.main.async {
+            self.bannerView.updateRelationshipStatus(self.relationshipStatus)
+        }
+    }
+    
     // MARK: - Message Handling
     
     private func loadChatHistory() {
@@ -196,7 +224,7 @@ class ChatViewController: UIViewController {
                 }
             } catch {
                 print("❌ ChatViewController - Error loading chat history: \(error)")
-                // TODO: Show error to user
+                handleError(error)
             }
         }
     }
@@ -295,6 +323,7 @@ extension ChatViewController: ChatInputViewDelegate {
                 let response = try await chatService.sendMessage(text: text, to: character)
                 await MainActor.run {
                     addMessage(response)
+                    loadRelationshipStatus() // Refresh relationship status after response
                     isLoading = false
                 }
             } catch {

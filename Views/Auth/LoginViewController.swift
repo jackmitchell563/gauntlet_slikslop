@@ -183,9 +183,9 @@ private struct LoginContentView: View {
                                 isLoading: isLoading
                             ) {
                                 if showSignUp {
-                                    await signUp()
+                                        await signUp()
                                 } else {
-                                    await signIn()
+                                        await signIn()
                                 }
                             }
                             
