@@ -1,0 +1,10 @@
+{
+  "name": "slikslop-ai-proxy",
+  "version": "1.0.0",
+  "description": "Lambda proxy for OpenAI API calls with Zod validation",
+  "main": "index.js",
+  "dependencies": {
+    "openai": "^4.28.0",
+    "zod": "^3.22.4"
+  }
+} 

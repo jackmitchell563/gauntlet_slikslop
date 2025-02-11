@@ -23,6 +23,7 @@ class CharacterChatService {
         case messageGenerationFailed
         case persistenceFailed
         case relationshipError
+        case imageGenerationFailed
         
         var errorDescription: String? {
             switch self {
@@ -34,6 +35,8 @@ class CharacterChatService {
                 return "Failed to save chat message"
             case .relationshipError:
                 return "Failed to manage relationship status"
+            case .imageGenerationFailed:
+                return "Failed to generate image"
             }
         }
     }
@@ -43,6 +46,14 @@ class CharacterChatService {
     private init() {}
     
     // MARK: - Public Methods
+    
+    /// Gets the chat ID for a given character
+    /// - Parameter character: The character to get the chat ID for
+    /// - Returns: A unique chat ID combining the current user's ID and character ID
+    func getChatId(for character: GameCharacter) -> String {
+        let userId = AuthService.shared.currentUserId ?? ""
+        return "\(userId)_\(character.id)"
+    }
     
     /// Sends a message to a character and gets their response
     /// - Parameters:
@@ -94,13 +105,25 @@ class CharacterChatService {
             change: relationshipChange
         )
         
-        // Create response message with next sequence
-        let responseMessage = ChatMessage(
+        // Create chat context
+        let context = try await createChatContext(
+            messages: messages,
+            character: character,
+            relationshipChange: relationshipChange
+        )
+        
+        // Determine if we should generate an image
+        let shouldGenerateImage = context.qualifiesForImageGeneration
+        
+        // Create response message
+        var responseMessage = ChatMessage(
             id: UUID().uuidString,
             text: responseText,
             sender: .character,
             timestamp: Date(),
-            sequence: nextSequence + 1
+            sequence: nextSequence + 1,
+            type: shouldGenerateImage ? .textWithImage : .text,
+            imageGenerationStatus: shouldGenerateImage ? .queued : nil
         )
         
         // Update cache
@@ -116,6 +139,49 @@ class CharacterChatService {
                 try await self.saveChatMessage(responseMessage, characterId: character.id)
             }
             try await group.waitForAll()
+        }
+        
+        // Generate image if needed
+        if shouldGenerateImage {
+            Task {
+                do {
+                    // Update status to generating
+                    responseMessage.imageGenerationStatus = .generating
+                    try await saveChatMessage(responseMessage, characterId: character.id)
+                    
+                    // Generate image
+                    let image = try await ImageGenerationService.shared.generateImageForChat(context: context)
+                    
+                    // Save image and get URL
+                    let imageURL = try await saveImage(image, messageId: responseMessage.id)
+                    
+                    // Update message with image URL
+                    responseMessage.imageURL = imageURL
+                    responseMessage.imageGenerationStatus = .completed
+                    try await saveChatMessage(responseMessage, characterId: character.id)
+                    
+                    // Update cache
+                    if var cachedMessages = messageCache[chatId],
+                       let index = cachedMessages.firstIndex(where: { $0.id == responseMessage.id }) {
+                        cachedMessages[index] = responseMessage
+                        messageCache[chatId] = cachedMessages
+                    }
+                    
+                } catch {
+                    print("❌ CharacterChatService - Error generating image: \(error)")
+                    
+                    // Update status to failed
+                    responseMessage.imageGenerationStatus = .failed(error)
+                    try? await saveChatMessage(responseMessage, characterId: character.id)
+                    
+                    // Update cache
+                    if var cachedMessages = messageCache[chatId],
+                       let index = cachedMessages.firstIndex(where: { $0.id == responseMessage.id }) {
+                        cachedMessages[index] = responseMessage
+                        messageCache[chatId] = cachedMessages
+                    }
+                }
+            }
         }
         
         print("📱 CharacterChatService - Message exchange completed successfully")
@@ -237,29 +303,47 @@ class CharacterChatService {
     
     // MARK: - Private Methods
     
-    private func getChatId(for character: GameCharacter) -> String {
-        let userId = AuthService.shared.currentUserId ?? ""
-        return "\(userId)_\(character.id)"
-    }
-    
+    /// Saves a chat message to Firestore
     private func saveChatMessage(_ message: ChatMessage, characterId: String) async throws {
         print("📱 CharacterChatService - Saving message: \(message.id)")
         
         let userId = AuthService.shared.currentUserId ?? ""
         let chatId = "\(userId)_\(characterId)"
         
+        var messageData: [String: Any] = [
+            "id": message.id,
+            "text": message.text,
+            "sender": message.sender == .user ? "user" : "character",
+            "timestamp": FieldValue.serverTimestamp(),
+            "sequence": message.sequence,
+            "status": "sent",
+            "type": message.type.rawValue
+        ]
+        
+        // Add image-related fields if present
+        if let imageURL = message.imageURL {
+            messageData["imageURL"] = imageURL.absoluteString
+        }
+        
+        if let status = message.imageGenerationStatus {
+            switch status {
+            case .queued:
+                messageData["imageGenerationStatus"] = "queued"
+            case .generating:
+                messageData["imageGenerationStatus"] = "generating"
+            case .completed:
+                messageData["imageGenerationStatus"] = "completed"
+            case .failed(let error):
+                messageData["imageGenerationStatus"] = "failed"
+                messageData["imageGenerationError"] = error.localizedDescription
+            }
+        }
+        
         try await db.collection("chats")
             .document(chatId)
             .collection("messages")
             .document(message.id)
-            .setData([
-                "id": message.id,
-                "text": message.text,
-                "sender": message.sender == .user ? "user" : "character",
-                "timestamp": FieldValue.serverTimestamp(),
-                "sequence": message.sequence,
-                "status": "sent"
-            ])
+            .setData(messageData)
     }
     
     /// Clears all caches
@@ -282,5 +366,41 @@ class CharacterChatService {
         relationshipCache[chatId] = 0
         
         print("📱 CharacterChatService - Chat initialized successfully")
+    }
+    
+    /// Creates a chat context from the current state
+    /// - Parameters:
+    ///   - messages: Recent chat messages
+    ///   - character: The character being chatted with
+    ///   - relationshipChange: Most recent relationship change
+    /// - Returns: A ChatContext object
+    private func createChatContext(
+        messages: [ChatMessage],
+        character: GameCharacter,
+        relationshipChange: Int
+    ) async throws -> ChatContext {
+        let relationshipStatus = try await getRelationshipStatus(
+            userId: AuthService.shared.currentUserId ?? "",
+            characterId: character.id
+        )
+        
+        return ChatContext(
+            messages: messages,
+            character: character,
+            relationshipStatus: relationshipStatus,
+            relationshipChange: relationshipChange
+        )
+    }
+    
+    /// Saves an image and returns its URL
+    /// - Parameters:
+    ///   - image: The image to save
+    ///   - messageId: ID of the associated message
+    /// - Returns: URL where the image is stored
+    private func saveImage(_ image: UIImage, messageId: String) async throws -> URL {
+        // TODO: Implement image storage
+        // This should save the image to Firebase Storage or similar
+        // and return the URL where it can be accessed
+        fatalError("Image storage not implemented")
     }
 } 

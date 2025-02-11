@@ -8,6 +8,38 @@ class CharacterBannerView: UIView {
     private var isImageLoaded = false
     private var relationshipStatus: Int = 0
     
+    // MARK: - Scaling Properties
+    
+    private let defaultHeight: CGFloat = 220
+    private let compactHeight: CGFloat = 160  // ~27% reduction
+    private var heightConstraint: NSLayoutConstraint?
+    private var isCompact: Bool = false
+    
+    // Size constraints that need to be updated
+    private var profileContainerWidthConstraint: NSLayoutConstraint?
+    private var profileContainerHeightConstraint: NSLayoutConstraint?
+    private var profileImageWidthConstraint: NSLayoutConstraint?
+    private var profileImageHeightConstraint: NSLayoutConstraint?
+    private var relationshipStatusWidthConstraint: NSLayoutConstraint?
+    private var relationshipStatusHeightConstraint: NSLayoutConstraint?
+    
+    // Default sizes
+    private let defaultProfileSize: CGFloat = 120
+    private let defaultImageSize: CGFloat = 100
+    private let compactScale: CGFloat = 0.73
+    
+    // Spacing constraints
+    private var topSpacingConstraint: NSLayoutConstraint?
+    private var nameSpacingConstraint: NSLayoutConstraint?
+    private var gameSpacingConstraint: NSLayoutConstraint?
+    private var relationshipSpacingConstraint: NSLayoutConstraint?
+    
+    // Default spacing values
+    private let defaultTopSpacing: CGFloat = 20
+    private let defaultNameSpacing: CGFloat = 4
+    private let defaultGameSpacing: CGFloat = 4
+    private let defaultRelationshipSpacing: CGFloat = 4
+    
     // MARK: - UI Components
     
     private lazy var profileContainerView: UIView = {
@@ -19,6 +51,8 @@ class CharacterBannerView: UIView {
     private lazy var relationshipStatusView: RelationshipStatusView = {
         let view = RelationshipStatusView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.clipsToBounds = true
+        view.contentMode = .scaleAspectFill  // Ensure smooth scaling
         return view
     }()
     
@@ -97,41 +131,61 @@ class CharacterBannerView: UIView {
         nameLabel.text = character.name
         gameLabel.text = character.game.rawValue
         
-        // Setup constraints
+        // Create constraints
+        let heightConstraint = heightAnchor.constraint(equalToConstant: defaultHeight)
+        let profileContainerWidth = profileContainerView.widthAnchor.constraint(equalToConstant: defaultProfileSize)
+        let profileContainerHeight = profileContainerView.heightAnchor.constraint(equalToConstant: defaultProfileSize)
+        let profileImageWidth = profileImageView.widthAnchor.constraint(equalToConstant: defaultImageSize)
+        let profileImageHeight = profileImageView.heightAnchor.constraint(equalToConstant: defaultImageSize)
+        let relationshipStatusWidth = relationshipStatusView.widthAnchor.constraint(equalToConstant: defaultProfileSize)
+        let relationshipStatusHeight = relationshipStatusView.heightAnchor.constraint(equalToConstant: defaultProfileSize)
+        
+        // Store constraints
+        self.heightConstraint = heightConstraint
+        self.profileContainerWidthConstraint = profileContainerWidth
+        self.profileContainerHeightConstraint = profileContainerHeight
+        self.profileImageWidthConstraint = profileImageWidth
+        self.profileImageHeightConstraint = profileImageHeight
+        self.relationshipStatusWidthConstraint = relationshipStatusWidth
+        self.relationshipStatusHeightConstraint = relationshipStatusHeight
+        
         NSLayoutConstraint.activate([
+            // Banner height
+            heightConstraint,
+            
             // Profile container view
-            profileContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            profileContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             profileContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            profileContainerView.widthAnchor.constraint(equalToConstant: 120),  // Larger to accommodate relationship circle
-            profileContainerView.heightAnchor.constraint(equalToConstant: 120),
+            profileContainerWidth,
+            profileContainerHeight,
             
-            // Relationship status view (larger circle)
-            relationshipStatusView.centerXAnchor.constraint(equalTo: profileContainerView.centerXAnchor),
-            relationshipStatusView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
-            relationshipStatusView.widthAnchor.constraint(equalTo: profileContainerView.widthAnchor),
-            relationshipStatusView.heightAnchor.constraint(equalTo: profileContainerView.heightAnchor),
-            
-            // Profile image view (smaller circle)
+            // Profile image
             profileImageView.centerXAnchor.constraint(equalTo: profileContainerView.centerXAnchor),
             profileImageView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
-            profileImageView.widthAnchor.constraint(equalToConstant: 100),
-            profileImageView.heightAnchor.constraint(equalToConstant: 100),
+            profileImageWidth,
+            profileImageHeight,
             
-            loadingIndicator.centerXAnchor.constraint(equalTo: profileImageView.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: profileImageView.centerYAnchor),
-            
-            nameLabel.topAnchor.constraint(equalTo: profileContainerView.bottomAnchor, constant: 12),
+            // Labels with tighter spacing
+            nameLabel.topAnchor.constraint(equalTo: profileContainerView.bottomAnchor, constant: 4),
             nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             
-            gameLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+            gameLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
             gameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             gameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             
-            relationshipLabel.topAnchor.constraint(equalTo: gameLabel.bottomAnchor, constant: 4),
+            relationshipLabel.topAnchor.constraint(equalTo: gameLabel.bottomAnchor, constant: 2),
             relationshipLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             relationshipLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            relationshipLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
+            
+            // Replace the relative constraints with explicit size constraints
+            relationshipStatusView.centerXAnchor.constraint(equalTo: profileContainerView.centerXAnchor),
+            relationshipStatusView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
+            relationshipStatusWidth,
+            relationshipStatusHeight,
+            
+            loadingIndicator.centerXAnchor.constraint(equalTo: profileImageView.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: profileImageView.centerYAnchor)
         ])
         
         // Start loading animation
@@ -184,5 +238,67 @@ class CharacterBannerView: UIView {
         let descriptor = RelationshipStatusView.RelationshipDescriptor.from(percentage: percentage)
         relationshipLabel.text = String(format: "%.1f%% - %@", percentage, descriptor.rawValue)
         relationshipLabel.textColor = percentage >= 0 ? .systemGreen : .systemRed
+    }
+}
+
+// MARK: - Scaling
+
+extension CharacterBannerView {
+    /// Sets the banner view to compact or full size mode
+    /// - Parameters:
+    ///   - compact: Whether to use compact mode
+    ///   - animated: Whether to animate the transition
+    func setCompactMode(_ compact: Bool, animated: Bool = true) {
+        guard compact != isCompact else { return }
+        isCompact = compact
+        
+        let duration = animated ? 0.3 : 0
+        
+        // Calculate new sizes
+        let containerSize = compact ? defaultProfileSize * compactScale : defaultProfileSize
+        let imageSize = compact ? defaultImageSize * compactScale : defaultImageSize
+        let newHeight = compact ? compactHeight : defaultHeight
+        
+        // Update font sizes
+        let nameFontSize = compact ? 18.0 : 24.0
+        let gameFontSize = compact ? 12.0 : 16.0
+        let relationshipFontSize = compact ? 10.0 : 14.0
+        
+        // Perform updates within animation block
+        if animated {
+            UIView.animate(withDuration: duration) {
+                // Update sizes
+                self.heightConstraint?.constant = newHeight
+                self.profileContainerWidthConstraint?.constant = containerSize
+                self.profileContainerHeightConstraint?.constant = containerSize
+                self.profileImageWidthConstraint?.constant = imageSize
+                self.profileImageHeightConstraint?.constant = imageSize
+                self.relationshipStatusWidthConstraint?.constant = containerSize
+                self.relationshipStatusHeightConstraint?.constant = containerSize
+                
+                // Update fonts
+                self.nameLabel.font = .systemFont(ofSize: nameFontSize, weight: .bold)
+                self.gameLabel.font = .systemFont(ofSize: gameFontSize)
+                self.relationshipLabel.font = .systemFont(ofSize: relationshipFontSize)
+                
+                // Force layout update
+                self.layoutIfNeeded()
+            }
+        } else {
+            // Apply changes immediately
+            heightConstraint?.constant = newHeight
+            profileContainerWidthConstraint?.constant = containerSize
+            profileContainerHeightConstraint?.constant = containerSize
+            profileImageWidthConstraint?.constant = imageSize
+            profileImageHeightConstraint?.constant = imageSize
+            relationshipStatusWidthConstraint?.constant = containerSize
+            relationshipStatusHeightConstraint?.constant = containerSize
+            
+            nameLabel.font = .systemFont(ofSize: nameFontSize, weight: .bold)
+            gameLabel.font = .systemFont(ofSize: gameFontSize)
+            relationshipLabel.font = .systemFont(ofSize: relationshipFontSize)
+            
+            layoutIfNeeded()
+        }
     }
 } 

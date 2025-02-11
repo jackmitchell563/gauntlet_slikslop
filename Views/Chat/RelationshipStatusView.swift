@@ -12,23 +12,27 @@ class RelationshipStatusView: UIView {
     }
     
     enum RelationshipDescriptor: String {
-        case despised = "Despised"    // -100% to -67%
-        case hated = "Hated"          // -66% to -34%
-        case disliked = "Disliked"    // -33% to -1%
-        case neutral = "Neutral"      // 0%
-        case liked = "Liked"          // 1% to 33%
-        case adored = "Adored"        // 34% to 66%
-        case loved = "Loved"          // 67% to 100%
+        case archnemeses = "Archnemeses"  // -100%
+        case nemeses = "Nemeses"      // -99.9% to -50%
+        case enemies = "Enemies"      // -50% to -30.1%
+        case adversaries = "Adversaries"  // -30% to -10.1%
+        case acquaintances = "Acquaintances"    // -10% to 10%
+        case friends = "Friends"             // 10.1% to 30%
+        case closeFriends = "Close Friends"    // 30.1% to 50%
+        case partners = "Partners"          // 50.1% to 99.9%
+        case soulmates = "Soulmates"      // 100%
         
         static func from(percentage: Double) -> RelationshipDescriptor {
             switch percentage {
-            case ..<(-66.67): return .despised
-            case ..<(-33.33): return .hated
-            case ..<0: return .disliked
-            case 0: return .neutral
-            case ..<33.33: return .liked
-            case ..<66.67: return .adored
-            default: return .loved
+            case -100: return .archnemeses
+            case -99.9...(-50): return .nemeses
+            case -49.9...(-30): return .enemies
+            case -29.9...(-10): return .adversaries
+            case -9.9...9.9: return .acquaintances
+            case 10...29.9: return .friends
+            case 30...49.9: return .closeFriends
+            case 50...99.9: return .partners
+            default: return .soulmates
             }
         }
     }

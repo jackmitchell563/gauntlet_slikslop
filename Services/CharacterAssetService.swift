@@ -113,39 +113,35 @@ class CharacterAssetService {
         }
         
         if !remainingCharacters.isEmpty {
-            print("📱 CharacterAssetService - Found \(loadedImages.count) cached images, downloading \(remainingCharacters.count) remaining")
+            print("📱 CharacterAssetService - Found \(loadedImages.count) cached images, loading \(remainingCharacters.count) remaining")
             
-            // Use optimized batch download
-            let newlyDownloaded = await downloadBannerImages(for: remainingCharacters)
-            
-            // Merge results
-            loadedImagesQueue.sync {
-                loadedImages.merge(newlyDownloaded) { current, _ in current }
+            await withTaskGroup(of: (String, UIImage?).self) { group in
+                for character in remainingCharacters {
+                    group.addTask {
+                        do {
+                            let image = try await self.loadBannerImage(for: character)
+                            return (character.id, image)
+                        } catch {
+                            print("❌ CharacterAssetService - Failed to load banner for \(character.id): \(error)")
+                            return (character.id, nil)
+                        }
+                    }
+                }
+                
+                // Collect successful results
+                for await (characterId, image) in group {
+                    if let image = image {
+                        loadedImagesQueue.sync {
+                            loadedImages[characterId] = image
+                        }
+                    }
+                }
             }
         } else {
-            print("📱 CharacterAssetService - All images found in cache or already downloading")
+            print("📱 CharacterAssetService - All banners found in cache")
         }
         
-        // Log final statistics
-        let stats = getCacheStats()
-        let downloadStats = serialQueue.sync {
-            (active: activeDownloads, total: totalDownloads, failed: failedDownloads)
-        }
-        
-        print("""
-            📱 CharacterAssetService - Preload completed
-            Cache Statistics:
-            - Hits: \(stats.hits)
-            - Misses: \(stats.misses)
-            - Hit Rate: \(String(format: "%.2f%%", stats.hitRate * 100))
-            - Total Data Loaded: \(String(format: "%.2fMB", stats.totalMB))
-            Download Statistics:
-            - Active Downloads: \(downloadStats.active)
-            - Total Downloads: \(downloadStats.total)
-            - Failed Downloads: \(downloadStats.failed)
-            - Success Rate: \(String(format: "%.1f%%", Double(downloadStats.total - downloadStats.failed) / Double(downloadStats.total) * 100))
-            """)
-        
+        print("📱 CharacterAssetService - Completed banner preload with \(loadedImages.count) images")
         return loadedImages
     }
     
@@ -301,22 +297,17 @@ class CharacterAssetService {
             return cachedImage
         }
         
-        guard let url = URL(string: character.profileImageURL) else {
-            print("❌ CharacterAssetService - Invalid profile URL for character: \(character.id)")
-            return nil
+        // Load from asset catalog with proper namespacing
+        let imageName = "Characters/Profiles/profile_\(character.id)"
+        if let image = UIImage(named: imageName) {
+            // Cache the loaded image
+            profileCache.setObject(image, forKey: character.id as NSString)
+            print("📱 CharacterAssetService - Successfully loaded profile from assets for: \(character.id)")
+            return image
         }
         
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let image = UIImage(data: data) {
-                // Cache the loaded image
-                profileCache.setObject(image, forKey: character.id as NSString)
-                return image
-            }
-        } catch {
-            print("❌ CharacterAssetService - Error loading profile image for \(character.id): \(error)")
-        }
-        
+        print("❌ CharacterAssetService - Failed to load profile from assets for \(character.id)")
+        print("📱 CharacterAssetService - Attempted to load image named: \(imageName)")
         return nil
     }
     
@@ -334,98 +325,42 @@ class CharacterAssetService {
         }
     }
     
+    // MARK: - Resource Loading Helpers
+    
+    private func resourceURL(for filename: String, in directory: String) -> URL? {
+        // First try the main bundle
+        if let url = Bundle.main.url(forResource: filename, withExtension: "png") {
+            return url
+        }
+        
+        // Then try with the directory path
+        if let resourcePath = Bundle.main.resourcePath {
+            let fullPath = (resourcePath as NSString).appendingPathComponent(directory)
+            let fileURL = (fullPath as NSString).appendingPathComponent(filename + ".png")
+            if FileManager.default.fileExists(atPath: fileURL) {
+                return URL(fileURLWithPath: fileURL)
+            }
+            print("📱 CharacterAssetService - Checked path: \(fileURL)")
+        }
+        
+        return nil
+    }
+    
     /// Internal method to load a banner image with enhanced download tracking
     private func loadBannerImageFromNetwork(for character: GameCharacter) async throws -> UIImage {
-        // Enforce download limit with timeout
-        let semaphoreTimeout = DispatchTime.now() + 5.0 // 5 second timeout
-        guard case .success = downloadSemaphore.wait(timeout: semaphoreTimeout) else {
-            throw AssetError.timeout
-        }
-        defer { downloadSemaphore.signal() }
-        
         print("📱 CharacterAssetService - Loading banner for character: \(character.id)")
         
-        // Check existing task
-        if let existingTask = serialQueue.sync(execute: { downloadTasks[character.bannerImageURL] }) {
-            print("📱 CharacterAssetService - Using existing download task for \(character.id)")
-            return try await existingTask.value
-        }
-        
-        // Track download start
-        trackDownloadStart(for: character.bannerImageURL)
-        
-        // Create new download task
-        let downloadTask = Task<UIImage, Error> {
-            print("📱 CharacterAssetService - Starting banner download for \(character.id)")
-            
-            do {
-                guard let url = URL(string: character.bannerImageURL) else {
-                    throw AssetError.invalidURL
-                }
-                
-                // Configure URL session for reliability
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 15
-                config.timeoutIntervalForResource = 30
-                config.waitsForConnectivity = true
-                config.requestCachePolicy = .returnCacheDataElseLoad
-                
-                let session = URLSession(configuration: config)
-                
-                var request = URLRequest(url: url)
-                request.cachePolicy = .returnCacheDataElseLoad
-                request.timeoutInterval = 15
-                request.setValue("image/*", forHTTPHeaderField: "Accept")
-                
-                let (data, response) = try await session.data(for: request)
-                
-                // Handle redirect
-                if let httpResponse = response as? HTTPURLResponse,
-                   (300...399).contains(httpResponse.statusCode),
-                   let location = httpResponse.value(forHTTPHeaderField: "Location"),
-                   let redirectURL = URL(string: location) {
-                    print("📱 CharacterAssetService - Following redirect for \(character.id) to: \(location)")
-                    let (redirectData, _) = try await session.data(from: redirectURL)
-                    guard let image = UIImage(data: redirectData) else {
-                        throw AssetError.invalidImageData
-                    }
-                    self.cacheImage(image, for: character.bannerImageURL)
-                    self.trackDownloadComplete(for: character.bannerImageURL, success: true)
-                    return image
-                }
-                
-                // Validate response
-                if let httpResponse = response as? HTTPURLResponse,
-                   !(200...299).contains(httpResponse.statusCode) {
-                    throw AssetError.serverError(httpResponse.statusCode)
-                }
-                
-                guard let image = UIImage(data: data) else {
-                    throw AssetError.invalidImageData
-                }
-                
-                self.cacheImage(image, for: character.bannerImageURL)
-                self.trackDownloadComplete(for: character.bannerImageURL, success: true)
-                print("📱 CharacterAssetService - Successfully loaded and cached banner for \(character.id)")
-                return image
-            } catch {
-                self.trackDownloadComplete(for: character.bannerImageURL, success: false)
-                print("❌ CharacterAssetService - Error loading banner for \(character.id): \(error)")
-                throw error
-            }
-        }
-        
-        // Store task
-        serialQueue.sync(execute: { downloadTasks[character.bannerImageURL] = downloadTask })
-        
-        do {
-            let image = try await downloadTask.value
-            serialQueue.sync(execute: { downloadTasks[character.bannerImageURL] = nil })
+        // Load from asset catalog with proper namespacing
+        let imageName = "Characters/Banners/banner_\(character.id)"
+        if let image = UIImage(named: imageName) {
+            print("📱 CharacterAssetService - Successfully loaded banner from assets for \(character.id)")
+            self.cacheImage(image, for: character.bannerImageURL)
             return image
-        } catch {
-            serialQueue.sync(execute: { downloadTasks[character.bannerImageURL] = nil })
-            throw error
         }
+        
+        print("❌ CharacterAssetService - Failed to load banner from assets for \(character.id)")
+        print("📱 CharacterAssetService - Attempted to load image named: \(imageName)")
+        throw AssetError.invalidImageData
     }
     
     /// Preloads assets for all characters from a specific game
@@ -436,16 +371,20 @@ class CharacterAssetService {
         do {
             let characters = try await CharacterService.shared.fetchCharacters(game: game)
             
-            // Create a task group for concurrent downloads
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for character in characters {
-                    group.addTask {
-                        _ = try await self.loadBannerImage(for: character)
-                    }
+            // Create task group for concurrent loading
+            await withTaskGroup(of: Void.self) { group in
+                // Add banner preload task
+                group.addTask {
+                    _ = await self.preloadBannerImages(for: characters)
                 }
                 
-                // Wait for all downloads to complete
-                try await group.waitForAll()
+                // Add profile preload task
+                group.addTask {
+                    _ = await self.preloadProfileImages(for: characters)
+                }
+                
+                // Wait for all loads to complete
+                await group.waitForAll()
             }
             
             print("📱 CharacterAssetService - Preloaded assets for \(characters.count) characters")

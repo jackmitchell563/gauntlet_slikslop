@@ -4,6 +4,11 @@ import UIKit
 class ChatBubbleCell: UICollectionViewCell {
     static let identifier = "ChatBubbleCell"
     
+    // MARK: - Properties
+    
+    private var loadingSpinner: UIActivityIndicatorView?
+    private var errorIcon: UIImageView?
+    
     // MARK: - UI Components
     
     private lazy var avatarContainer: UIView = {
@@ -12,10 +17,39 @@ class ChatBubbleCell: UICollectionViewCell {
         return view
     }()
     
-    private lazy var bubbleView: ChatBubbleView = {
-        let view = ChatBubbleView()
+    private lazy var contentContainer: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+    
+    private lazy var bubbleView: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 16
+        view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
+    }()
+    
+    private lazy var messageLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 16)
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.layer.cornerRadius = 16
+        iv.isHidden = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
     }()
     
     private lazy var avatarImageView: UIImageView = {
@@ -37,7 +71,7 @@ class ChatBubbleCell: UICollectionViewCell {
     }()
     
     private var avatarConstraints: [NSLayoutConstraint] = []
-    private var bubbleConstraints: [NSLayoutConstraint] = []
+    private var contentConstraints: [NSLayoutConstraint] = []
     
     // MARK: - Initialization
     
@@ -58,8 +92,11 @@ class ChatBubbleCell: UICollectionViewCell {
         avatarContainer.addSubview(avatarImageView)
         avatarContainer.addSubview(timestampLabel)
         
-        // Add bubble view
-        contentView.addSubview(bubbleView)
+        // Add content container and its subviews
+        contentView.addSubview(contentContainer)
+        contentContainer.addArrangedSubview(bubbleView)
+        bubbleView.addSubview(messageLabel)
+        contentContainer.addArrangedSubview(imageView)
         
         // Setup avatar container constraints
         NSLayoutConstraint.activate([
@@ -74,7 +111,14 @@ class ChatBubbleCell: UICollectionViewCell {
             timestampLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 4),
             timestampLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
             timestampLabel.widthAnchor.constraint(equalTo: avatarContainer.widthAnchor),
-            timestampLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor)
+            timestampLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            
+            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 8),
+            messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
+            messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
+            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8),
+            
+            imageView.heightAnchor.constraint(equalToConstant: 200)
         ])
     }
     
@@ -83,14 +127,22 @@ class ChatBubbleCell: UICollectionViewCell {
         
         // Remove existing constraints
         NSLayoutConstraint.deactivate(avatarConstraints)
-        NSLayoutConstraint.deactivate(bubbleConstraints)
+        NSLayoutConstraint.deactivate(contentConstraints)
         avatarConstraints.removeAll()
-        bubbleConstraints.removeAll()
+        contentConstraints.removeAll()
         
         // Reset images and text
         avatarImageView.image = nil
+        imageView.image = nil
         timestampLabel.text = nil
-        bubbleView.removeFromSuperview()
+        messageLabel.text = nil
+        imageView.isHidden = true
+        
+        // Remove loading states
+        loadingSpinner?.removeFromSuperview()
+        loadingSpinner = nil
+        errorIcon?.removeFromSuperview()
+        errorIcon = nil
     }
     
     // MARK: - Configuration
@@ -102,18 +154,22 @@ class ChatBubbleCell: UICollectionViewCell {
         
         // Remove any existing constraints
         NSLayoutConstraint.deactivate(avatarConstraints)
-        NSLayoutConstraint.deactivate(bubbleConstraints)
+        NSLayoutConstraint.deactivate(contentConstraints)
         avatarConstraints.removeAll()
-        bubbleConstraints.removeAll()
-        
-        bubbleView.removeFromSuperview()
-        contentView.addSubview(bubbleView)
+        contentConstraints.removeAll()
         
         if message.sender == .user {
             // User message styling - right aligned
-            let avatarConstraint = avatarContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
-            avatarConstraints = [avatarConstraint]
-            avatarConstraint.isActive = true
+            avatarConstraints = [
+                avatarContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+            ]
+            
+            contentConstraints = [
+                contentContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
+                contentContainer.trailingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -12),
+                contentContainer.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
+                contentContainer.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+            ]
             
             // Set user avatar
             if let currentUser = FirebaseConfig.getAuthInstance().currentUser,
@@ -133,22 +189,22 @@ class ChatBubbleCell: UICollectionViewCell {
                 avatarImageView.image = UIImage(systemName: "person.circle.fill")
             }
             
-            // Right-aligned bubble
-            bubbleConstraints = [
-                bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                bubbleView.trailingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -12),
-                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
-                bubbleView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-            ]
-            NSLayoutConstraint.activate(bubbleConstraints)
-            
-            bubbleView.configure(with: message, isUser: true)
+            // Style bubble
+            bubbleView.backgroundColor = .systemBlue
+            messageLabel.textColor = .white
             
         } else {
             // AI message styling - left aligned
-            let avatarConstraint = avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-            avatarConstraints = [avatarConstraint]
-            avatarConstraint.isActive = true
+            avatarConstraints = [
+                avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+            ]
+            
+            contentConstraints = [
+                contentContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
+                contentContainer.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 12),
+                contentContainer.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
+                contentContainer.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+            ]
             
             // Load AI profile image
             if let profileURLString = profileImageURL,
@@ -168,27 +224,119 @@ class ChatBubbleCell: UICollectionViewCell {
                 avatarImageView.image = UIImage(systemName: "person.circle.fill")
             }
             
-            // Left-aligned bubble
-            bubbleConstraints = [
-                bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                bubbleView.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 12),
-                bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
-                bubbleView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-            ]
-            NSLayoutConstraint.activate(bubbleConstraints)
-            
-            bubbleView.configure(with: message, isUser: false)
+            // Style bubble
+            bubbleView.backgroundColor = .secondarySystemBackground
+            messageLabel.textColor = .label
         }
+        
+        // Activate constraints
+        NSLayoutConstraint.activate(avatarConstraints)
+        NSLayoutConstraint.activate(contentConstraints)
+        
+        // Configure message content
+        messageLabel.text = message.text
+        
+        // Handle image if present
+        if message.type == .textWithImage {
+            imageView.isHidden = false
+            
+            if let status = message.imageGenerationStatus {
+                switch status {
+                case .queued:
+                    showLoadingState(message: "Queued...")
+                case .generating:
+                    showLoadingState(message: "Generating...")
+                case .completed:
+                    if let imageURL = message.imageURL {
+                        loadImage(from: imageURL)
+                    }
+                case .failed:
+                    showErrorState()
+                }
+            }
+        } else {
+            imageView.isHidden = true
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func loadImage(from url: URL) {
+        Task {
+            do {
+                let image = try await ImageCacheService.shared.getImage(from: url)
+                await MainActor.run {
+                    imageView.image = image
+                    loadingSpinner?.removeFromSuperview()
+                    loadingSpinner = nil
+                }
+            } catch {
+                print("❌ ChatBubbleCell - Error loading image: \(error)")
+                showErrorState()
+            }
+        }
+    }
+    
+    private func showLoadingState(message: String) {
+        loadingSpinner?.removeFromSuperview()
+        
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.startAnimating()
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        imageView.addSubview(spinner)
+        
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor)
+        ])
+        
+        loadingSpinner = spinner
+    }
+    
+    private func showErrorState() {
+        loadingSpinner?.removeFromSuperview()
+        loadingSpinner = nil
+        
+        let errorImage = UIImage(systemName: "exclamationmark.triangle.fill")
+        let imageView = UIImageView(image: errorImage)
+        imageView.tintColor = .systemRed
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        self.imageView.addSubview(imageView)
+        
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: self.imageView.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: self.imageView.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 32),
+            imageView.heightAnchor.constraint(equalToConstant: 32)
+        ])
+        
+        errorIcon = imageView
     }
     
     // MARK: - Size Calculation
     
     static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
-        let bubbleSize = ChatBubbleView.size(for: message, width: width * 0.75)  // Use 75% of width
-        let avatarHeight: CGFloat = 48 // Avatar height
-        let timestampHeight: CGFloat = 20 // Font size (12) + padding
-        let totalHeight = max(bubbleSize.height, avatarHeight + timestampHeight + 4) // 4 is spacing between avatar and timestamp
-        return CGSize(width: width, height: totalHeight)
+        let messageInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        let availableWidth = width - messageInsets.left - messageInsets.right
+        
+        let textSize = NSString(string: message.text).boundingRect(
+            with: CGSize(width: availableWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: UIFont.systemFont(ofSize: 16)],
+            context: nil
+        ).size
+        
+        var height = ceil(textSize.height) + messageInsets.top + messageInsets.bottom
+        
+        // Add height for image if needed
+        if message.type == .textWithImage {
+            height += 208  // 200 for image + 8 for spacing
+        }
+        
+        // Add height for timestamp
+        height += 24  // Avatar height (48) + timestamp spacing (4) = 72 total for avatar container
+        
+        return CGSize(width: ceil(textSize.width) + messageInsets.left + messageInsets.right, height: height)
     }
 }
 

@@ -83,7 +83,8 @@ class VideoPlayerCell: UICollectionViewCell {
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        cleanup()
+        // Notify controller about reuse instead of direct cleanup
+        VideoPlaybackController.shared.handleCellReuse(self)
     }
     
     // MARK: - Setup
@@ -195,9 +196,14 @@ class VideoPlayerCell: UICollectionViewCell {
         }
         
         playerView.configure(with: URL(string: metadata.url)!, isFirstCell: tag == 0)
-        // Only pause if not the first video
-        if tag != 0 {
-            playerView.pause()
+        
+        // Let VideoPlaybackController handle initial playback state
+        if tag == 0 {
+            print("📱 VideoPlayerCell - First cell configured, letting VideoPlaybackController handle playback")
+            if let collectionView = superview as? UICollectionView {
+                let visibleCells = collectionView.visibleCells.compactMap { $0 as? VideoPlayerCell }
+                VideoPlaybackController.shared.updatePlayback(for: visibleCells, scrolling: false)
+            }
         }
     }
     
@@ -227,10 +233,15 @@ class VideoPlayerCell: UICollectionViewCell {
     
     // MARK: - Cleanup
     
-    private func cleanup() {
+    func cleanup() {
         playerView.cleanup()
         cancellables.removeAll()
         metadata = nil
+    }
+    
+    /// Gets the current playback time
+    func getCurrentTime() -> CMTime? {
+        return playerView.getCurrentTime()
     }
 }
 
@@ -238,7 +249,27 @@ class VideoPlayerCell: UICollectionViewCell {
 
 extension VideoPlayerCell: VideoPlayerViewDelegate {
     func videoPlayerViewDidTapToTogglePlayback(_ view: VideoPlayerView) {
-        // No additional handling needed, the VideoPlayerView handles everything
+        print("👆 VideoPlayerCell - Handling tap to toggle playback")
+        
+        // Get all visible cells including this one
+        guard let collectionView = superview as? UICollectionView else {
+            print("❌ VideoPlayerCell - No collection view found for tap handling")
+            return
+        }
+        
+        // Get current playback state from controller
+        let isCurrentlyPlaying = VideoPlaybackController.shared.isCurrentlyPlaying(self)
+        
+        if isCurrentlyPlaying {
+            // If this cell is currently playing, pause it
+            print("⏸️ VideoPlayerCell - Pausing currently playing video")
+            VideoPlaybackController.shared.pauseAll()
+        } else {
+            // If this cell is not playing, update playback to focus on this cell
+            print("▶️ VideoPlayerCell - Attempting to play this cell")
+            let visibleCells = collectionView.visibleCells.compactMap { $0 as? VideoPlayerCell }
+            VideoPlaybackController.shared.updatePlayback(for: visibleCells, scrolling: false)
+        }
     }
 }
 
@@ -388,9 +419,6 @@ extension VideoPlayerCell: VideoInteractionDelegate {
     func didTapCharacterInteraction(for videoId: String) {
         print("👆 VideoPlayerCell - Character interaction tapped for video: \(videoId)")
         
-        // Pause the video
-        pause()
-        
         // Create and present the character selection view controller
         let selectionVC = CharacterSelectionViewController()
         selectionVC.modalPresentationStyle = .pageSheet
@@ -460,12 +488,11 @@ extension VideoPlayerCell: CharacterSelectionDelegate {
 
 extension VideoPlayerCell: UISheetPresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        print("📱 VideoPlayerCell - Sheet dismissed, resuming video playback")
+        print("📱 VideoPlayerCell - Sheet dismissed")
         // Notify FeedViewController about sheet dismissal
         if let feedVC = parentViewController as? FeedViewController {
             feedVC.didDismissSheet()
         }
-        play()
     }
 }
 
@@ -529,5 +556,33 @@ extension VideoPlayerCell: UIGestureRecognizerDelegate {
             return false
         }
         return true
+    }
+}
+
+// MARK: - Visibility Calculation
+
+extension VideoPlayerCell {
+    /// Calculate visible area percentage of the cell
+    /// - Returns: A value between 0 and 1 representing how much of the cell is visible in the collection view
+    var visibleAreaPercentage: CGFloat {
+        // First check if we have a superview (collection view)
+        guard let superview = superview else { 
+            print("📏 VideoPlayerCell - No superview found for visibility calculation")
+            return 0 
+        }
+        
+        // Convert cell's bounds to superview's coordinate space
+        let cellRect = convert(bounds, to: superview)
+        
+        // Calculate intersection with superview's bounds
+        let intersection = cellRect.intersection(superview.bounds)
+        
+        // Calculate visibility percentage
+        let percentage = intersection.height / bounds.height
+        
+        // Log visibility for debugging
+        print("📏 VideoPlayerCell \(tag) - Visibility: \(String(format: "%.2f", percentage * 100))%")
+        
+        return percentage
     }
 } 

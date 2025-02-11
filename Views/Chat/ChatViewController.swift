@@ -1,4 +1,5 @@
 import UIKit
+import FirebaseFirestore
 
 /// View controller for character chat interactions
 class ChatViewController: UIViewController {
@@ -8,6 +9,7 @@ class ChatViewController: UIViewController {
     private var messages: [ChatMessage] = []
     private let chatService = CharacterChatService.shared
     private var relationshipStatus: Int = 0
+    private let db = Firestore.firestore()  // Add Firestore database reference
     
     // Loading state
     private var isLoading = false {
@@ -168,6 +170,9 @@ class ChatViewController: UIViewController {
         
         bottomConstraint?.constant = -keyboardHeight
         
+        // Enable compact mode for banner when keyboard shows
+        bannerView.setCompactMode(true, animated: true)
+        
         UIView.animate(withDuration: duration) {
             self.view.layoutIfNeeded()
         }
@@ -179,6 +184,9 @@ class ChatViewController: UIViewController {
         }
         
         bottomConstraint?.constant = 0
+        
+        // Restore banner to full size when keyboard hides
+        bannerView.setCompactMode(false, animated: true)
         
         UIView.animate(withDuration: duration) {
             self.view.layoutIfNeeded()
@@ -232,8 +240,63 @@ class ChatViewController: UIViewController {
     private func addMessage(_ message: ChatMessage) {
         messages.append(message)
         let indexPath = IndexPath(item: messages.count - 1, section: 0)
+        
+        // If this is an image message, we need to observe its status changes
+        if message.type == .textWithImage {
+            observeImageStatus(for: message)
+        }
+        
         collectionView.insertItems(at: [indexPath])
         scrollToBottom()
+    }
+    
+    /// Observes image generation status changes for a message
+    private func observeImageStatus(for message: ChatMessage) {
+        // Create a reference to the message document
+        let chatId = chatService.getChatId(for: character)
+        let messageRef = db.collection("chats")
+            .document(chatId)
+            .collection("messages")
+            .document(message.id)
+        
+        // Listen for real-time updates
+        messageRef.addSnapshotListener { [weak self] snapshot, error in
+            guard let self = self,
+                  let data = snapshot?.data(),
+                  let statusString = data["imageGenerationStatus"] as? String else {
+                return
+            }
+            
+            // Update message status
+            var updatedMessage = message
+            switch statusString {
+            case "queued":
+                updatedMessage.imageGenerationStatus = .queued
+            case "generating":
+                updatedMessage.imageGenerationStatus = .generating
+            case "completed":
+                updatedMessage.imageGenerationStatus = .completed
+                if let urlString = data["imageURL"] as? String,
+                   let url = URL(string: urlString) {
+                    updatedMessage.imageURL = url
+                }
+            case "failed":
+                let errorMessage = data["imageGenerationError"] as? String ?? "Unknown error"
+                updatedMessage.imageGenerationStatus = .failed(
+                    NSError(domain: "ImageGeneration",
+                           code: -1,
+                           userInfo: [NSLocalizedDescriptionKey: errorMessage])
+                )
+            default:
+                break
+            }
+            
+            // Update UI
+            if let index = self.messages.firstIndex(where: { $0.id == message.id }) {
+                self.messages[index] = updatedMessage
+                self.collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
+            }
+        }
     }
     
     private func scrollToBottom() {

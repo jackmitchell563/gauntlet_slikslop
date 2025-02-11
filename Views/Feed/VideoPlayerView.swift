@@ -13,25 +13,55 @@ class VideoPlayerView: UIView {
     private var player: AVPlayer?
     private var playerLayer: AVPlayerLayer?
     private var timeObserver: Any?
-    private var isPlaying = false
     private var iconFadeWorkItem: DispatchWorkItem?
     private var isFirstCell = false
     private var originalURL: URL?
     
     /// Quality levels for video playback
-    enum VideoQuality {
-        case auto    // Automatically determine based on network conditions
-        case low     // 480p or lower
-        case medium  // 720p
-        case high    // Original quality
+    // Remove internal VideoQuality enum and use the shared one
+    
+    /// Video loading states
+    private enum VideoLoadingState: Equatable {
+        case initial
+        case loading
+        case playing
+        case paused
+        case error(Error)
         
-        var maxHeight: Int? {
-            switch self {
-            case .auto: return nil
-            case .low: return 480
-            case .medium: return 720
-            case .high: return nil
+        var isLoading: Bool {
+            if case .loading = self { return true }
+            return false
+        }
+        
+        var isError: Bool {
+            if case .error = self { return true }
+            return false
+        }
+        
+        // Implement Equatable manually since Error doesn't conform to Equatable
+        static func == (lhs: VideoLoadingState, rhs: VideoLoadingState) -> Bool {
+            switch (lhs, rhs) {
+            case (.initial, .initial):
+                return true
+            case (.loading, .loading):
+                return true
+            case (.playing, .playing):
+                return true
+            case (.paused, .paused):
+                return true
+            case (.error, .error):
+                // Consider errors equal for comparison purposes
+                return true
+            default:
+                return false
             }
+        }
+    }
+    
+    /// Current loading state
+    private var loadingState: VideoLoadingState = .initial {
+        didSet {
+            updateUIForLoadingState()
         }
     }
     
@@ -43,6 +73,8 @@ class VideoPlayerView: UIView {
             }
         }
     }
+    
+    // MARK: - UI Components
     
     private lazy var tapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -75,6 +107,33 @@ class VideoPlayerView: UIView {
         return view
     }()
     
+    private lazy var errorView: UIView = {
+        let view = UIView()
+        view.isHidden = true
+        view.backgroundColor = .black.withAlphaComponent(0.7)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private lazy var errorLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var retryButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("Retry", for: .normal)
+        button.tintColor = .white
+        button.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+    
     // MARK: - Initialization
     
     override init(frame: CGRect) {
@@ -95,6 +154,10 @@ class VideoPlayerView: UIView {
         addSubview(loadingIndicator)
         addSubview(iconBackground)
         addSubview(playPauseIcon)
+        addSubview(errorView)
+        
+        errorView.addSubview(errorLabel)
+        errorView.addSubview(retryButton)
         
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -108,12 +171,26 @@ class VideoPlayerView: UIView {
             playPauseIcon.centerXAnchor.constraint(equalTo: iconBackground.centerXAnchor),
             playPauseIcon.centerYAnchor.constraint(equalTo: iconBackground.centerYAnchor),
             playPauseIcon.widthAnchor.constraint(equalToConstant: 30),
-            playPauseIcon.heightAnchor.constraint(equalToConstant: 30)
+            playPauseIcon.heightAnchor.constraint(equalToConstant: 30),
+            
+            errorView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            errorView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            errorView.topAnchor.constraint(equalTo: topAnchor),
+            errorView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            errorLabel.centerXAnchor.constraint(equalTo: errorView.centerXAnchor),
+            errorLabel.centerYAnchor.constraint(equalTo: errorView.centerYAnchor, constant: -20),
+            errorLabel.leadingAnchor.constraint(equalTo: errorView.leadingAnchor, constant: 20),
+            errorLabel.trailingAnchor.constraint(equalTo: errorView.trailingAnchor, constant: -20),
+            
+            retryButton.centerXAnchor.constraint(equalTo: errorView.centerXAnchor),
+            retryButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 16)
         ])
         
         // Ensure icons are always on top
         iconBackground.layer.zPosition = 999
         playPauseIcon.layer.zPosition = 1000
+        errorView.layer.zPosition = 998
     }
     
     // MARK: - Layout
@@ -126,6 +203,7 @@ class VideoPlayerView: UIView {
     // MARK: - Configuration
     
     func configure(with url: URL, isFirstCell: Bool = false) {
+        print("📹 VideoPlayerView - Configuring with URL: \(url)")
         self.isFirstCell = isFirstCell
         self.originalURL = url
         loadingIndicator.startAnimating()
@@ -172,51 +250,108 @@ class VideoPlayerView: UIView {
     private func setupPlayerWithQuality(_ quality: VideoQuality) {
         guard let url = originalURL else {
             print("❌ VideoPlayerView - No original URL available")
+            loadingState = .error(NSError(domain: "VideoPlayerView", code: -1, userInfo: [NSLocalizedDescriptionKey: "No URL available"]))
+            return
+        }
+        
+        // Check if we should maintain this player
+        guard let cell = findParentCell(),
+              VideoPlaybackController.shared.shouldMaintainPlayer(for: cell) else {
+            print("📹 VideoPlayerView - Cell outside tracking window, skipping player setup")
             return
         }
         
         print("📹 VideoPlayerView - Setting up player with quality: \(quality)")
         
-        // Apply quality restrictions if needed
-        let finalURL = modifyURLForQuality(url, quality: quality)
-        print("📹 VideoPlayerView - Original URL: \(url)")
-        print("📹 VideoPlayerView - Modified URL: \(finalURL)")
+        // Create cache key for this video
+        let videoId = url.lastPathComponent
+        let cacheKey = VideoCacheKey(videoId: videoId, quality: quality)
         
-        // Create new player
-        let playerItem = AVPlayerItem(url: finalURL)
-        player = AVPlayer(playerItem: playerItem)
-        playerLayer = AVPlayerLayer(player: player)
-        playerLayer?.videoGravity = .resizeAspectFill
-        playerLayer?.frame = bounds
+        // Update loading state
+        loadingState = .loading
+        loadingIndicator.startAnimating()
         
-        // Insert the player layer below all subviews
-        layer.insertSublayer(playerLayer!, at: 0)
-        
-        // Add observers
-        setupObservers(for: playerItem)
+        // Attempt to load from cache or download
+        Task {
+            do {
+                let playerItem = try await loadVideoFromCacheOrDownload(with: cacheKey, url: url)
+                
+                await MainActor.run {
+                    // Create new player with the item
+                    player = AVPlayer(playerItem: playerItem)
+                    playerLayer = AVPlayerLayer(player: player)
+                    playerLayer?.videoGravity = .resizeAspectFill
+                    playerLayer?.frame = bounds
+                    
+                    // Insert the player layer below all subviews
+                    layer.insertSublayer(playerLayer!, at: 0)
+                    
+                    // Add observers
+                    setupObservers(for: playerItem)
+                    
+                    // Restore previous progress if available
+                    if let cell = findParentCell(),
+                       let storedProgress = VideoPlaybackController.shared.getStoredProgress(for: cell) {
+                        player?.seek(to: storedProgress)
+                    }
+                    
+                    // Set initial state to paused and let VideoPlaybackController handle playback
+                    loadingState = .paused
+                    loadingIndicator.stopAnimating()
+                    
+                    // Notify VideoPlaybackController that this cell is ready
+                    if let cell = findParentCell() {
+                        print("📹 VideoPlayerView - Cell \(cell.tag) ready for playback control")
+                        VideoPlaybackController.shared.handleCellReady(cell)
+                    }
+                }
+            } catch {
+                print("❌ VideoPlayerView - Failed to setup player: \(error)")
+                await MainActor.run {
+                    loadingState = .error(error)
+                    loadingIndicator.stopAnimating()
+                    handleVideoLoadError(error)
+                }
+            }
+        }
     }
     
-    private func modifyURLForQuality(_ url: URL, quality: VideoQuality) -> URL {
-        guard let maxHeight = quality.maxHeight else {
-            return url // Return original URL for auto or high quality
+    private func loadVideoFromCacheOrDownload(
+        with key: VideoCacheKey,
+        url: URL
+    ) async throws -> AVPlayerItem {
+        print("📹 VideoPlayerView - Attempting to load video")
+        
+        do {
+            let playerItem = try await VideoCacheService.shared.downloadAndCacheVideo(from: url, for: key)
+            print("✅ VideoPlayerView - Successfully loaded video")
+            return playerItem
+        } catch {
+            print("❌ VideoPlayerView - Error loading video: \(error)")
+            throw error
+        }
+    }
+    
+    private func handleVideoLoadError(_ error: Error) {
+        print("❌ VideoPlayerView - Error loading video: \(error)")
+        
+        let errorMessage: String
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                errorMessage = "No internet connection"
+            case .timedOut:
+                errorMessage = "Connection timed out"
+            default:
+                errorMessage = "Failed to load video"
+            }
+        } else {
+            errorMessage = "Failed to load video"
         }
         
-        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: true)
-        
-        // Add or modify quality parameter based on URL type
-        if url.absoluteString.contains("youtube.com") {
-            // YouTube-style quality parameter
-            let existingItems = urlComponents?.queryItems ?? []
-            let qualityItem = URLQueryItem(name: "quality", value: "hd\(maxHeight)")
-            urlComponents?.queryItems = existingItems + [qualityItem]
-        } else if url.absoluteString.contains("cloudfront.net") || url.absoluteString.contains("amazonaws.com") {
-            // AWS/CloudFront style parameter
-            let existingItems = urlComponents?.queryItems ?? []
-            let heightItem = URLQueryItem(name: "height", value: String(maxHeight))
-            urlComponents?.queryItems = existingItems + [heightItem]
-        }
-        
-        return urlComponents?.url ?? url
+        errorLabel.text = errorMessage
+        errorView.isHidden = false
+        loadingIndicator.stopAnimating()
     }
     
     private func reloadWithCurrentQuality() {
@@ -224,6 +359,14 @@ class VideoPlayerView: UIView {
         
         // Store current playback time
         let currentTime = player?.currentTime()
+        
+        // Store current playback state by checking with controller
+        guard let parentCell = findParentCell() else {
+            print("❌ VideoPlayerView - Could not find parent cell for quality reload")
+            return
+        }
+        let wasPlaying = VideoPlaybackController.shared.isCurrentlyPlaying(parentCell)
+        print("📹 VideoPlayerView - Storing playback state before quality change: \(wasPlaying ? "playing" : "paused")")
         
         // Clean up existing player
         cleanup()
@@ -235,9 +378,21 @@ class VideoPlayerView: UIView {
         if let time = currentTime {
             player?.seek(to: time)
         }
-        if isPlaying {
+        if wasPlaying {
             player?.play()
         }
+    }
+    
+    // Helper method to find parent VideoPlayerCell
+    private func findParentCell() -> VideoPlayerCell? {
+        var current: UIView? = self
+        while let view = current {
+            if let cell = view as? VideoPlayerCell {
+                return cell
+            }
+            current = view.superview
+        }
+        return nil
     }
     
     private func setupObservers(for playerItem: AVPlayerItem) {
@@ -249,58 +404,100 @@ class VideoPlayerView: UIView {
                                              selector: #selector(playerDidFinishPlaying),
                                              name: .AVPlayerItemDidPlayToEndTime,
                                              object: playerItem)
+        
+        // Add periodic time observer to track progress
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self = self, let cell = self.findParentCell() else { return }
+            VideoPlaybackController.shared.recordProgress(for: cell, time: time)
+        }
     }
     
     // MARK: - Playback Control
     
-    func togglePlayback() {
-        if isPlaying {
-            pause()
-        } else {
-            play()
-        }
+    /// Gets the current playback time
+    func getCurrentTime() -> CMTime? {
+        return player?.currentTime()
     }
     
+    /// Plays the video
     func play() {
+        print("▶️ VideoPlayerView - Playing video")
+        // Allow playing from both paused and loading states
+        guard case let state = loadingState, state == .paused || state == .loading else {
+            print("❌ VideoPlayerView - Cannot play video in current state: \(loadingState)")
+            return
+        }
+        
+        // If we're loading, just mark that we should play when ready
+        if case .loading = loadingState {
+            print("📹 VideoPlayerView - Deferring play until loading completes")
+            return
+        }
+        
         player?.play()
-        isPlaying = true
+        loadingState = .playing
+        showPlayPauseIcon()
     }
     
+    /// Pauses the video
     func pause() {
+        print("⏸️ VideoPlayerView - Pausing video")
+        guard case .playing = loadingState else {
+            print("❌ VideoPlayerView - Cannot pause video in current state: \(loadingState)")
+            return
+        }
         player?.pause()
-        isPlaying = false
+        loadingState = .paused
+        showPlayPauseIcon()
     }
     
-    private func showPlayPauseIcon(isPlaying: Bool) {
-        // Cancel any existing fade out
-        iconFadeWorkItem?.cancel()
-        
-        // Update icon - now showing the action that was just taken
-        playPauseIcon.image = UIImage(systemName: isPlaying ? "play.fill" : "pause.fill")?.withRenderingMode(.alwaysTemplate)
-        
-        // Show icon with animation
-        UIView.animate(withDuration: 0.2) {
-            self.playPauseIcon.alpha = 1
-            self.iconBackground.alpha = 1
-        }
-        
-        // Schedule fade out
-        let workItem = DispatchWorkItem { [weak self] in
-            UIView.animate(withDuration: 0.2) {
-                self?.playPauseIcon.alpha = 0
-                self?.iconBackground.alpha = 0
-            }
-        }
-        iconFadeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
-    }
-    
-    // MARK: - Gesture Handling
+    // MARK: - User Interaction
     
     @objc func handleTap() {
-        togglePlayback()
-        showPlayPauseIcon(isPlaying: isPlaying)
+        print("👆 VideoPlayerView - Tap detected")
         delegate?.videoPlayerViewDidTapToTogglePlayback(self)
+    }
+    
+    @objc private func handleRetry() {
+        print("🔄 VideoPlayerView - Retrying video load")
+        errorView.isHidden = true
+        
+        guard let url = originalURL else {
+            print("❌ VideoPlayerView - No URL available for retry")
+            return
+        }
+        
+        // Reconfigure with current quality
+        setupPlayerWithQuality(currentQuality)
+    }
+    
+    // MARK: - Private Methods
+    
+    private func updatePlayPauseIcon() {
+        guard let parentCell = findParentCell() else {
+            print("❌ VideoPlayerView - Could not find parent cell for icon update")
+            return
+        }
+        let isPlaying = VideoPlaybackController.shared.isCurrentlyPlaying(parentCell)
+        print("📹 VideoPlayerView - Updating play/pause icon, current state: \(isPlaying ? "playing" : "paused")")
+        playPauseIcon.image = UIImage(systemName: isPlaying ? "pause.fill" : "play.fill")?.withRenderingMode(.alwaysTemplate)
+    }
+    
+    private func showPlayPauseIcon() {
+        updatePlayPauseIcon()
+        
+        // Show both the icon and background with animation
+        playPauseIcon.alpha = 1.0
+        iconBackground.alpha = 1.0
+        
+        // Hide both the icon and background after a delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            UIView.animate(withDuration: 0.3) {
+                self?.playPauseIcon.alpha = 0.0
+                self?.iconBackground.alpha = 0.0
+            }
+        }
     }
     
     // MARK: - Observer Handling
@@ -321,12 +518,8 @@ class VideoPlayerView: UIView {
             
             switch status {
             case .readyToPlay:
-                print("📹 VideoPlayerView - Ready to play, isFirstCell: \(isFirstCell)")
+                print("📹 VideoPlayerView - Ready to play")
                 loadingIndicator.stopAnimating()
-                if isFirstCell {
-                    print("📹 VideoPlayerView - Auto-playing first cell")
-                    play()
-                }
             case .failed:
                 if let error = player?.currentItem?.error {
                     print("❌ VideoPlayerView - Failed to load video: \(error)")
@@ -344,6 +537,7 @@ class VideoPlayerView: UIView {
     
     @objc private func playerDidFinishPlaying() {
         // Loop the video
+        print("🔄 VideoPlayerView - Video finished, looping")
         player?.seek(to: .zero)
         player?.play()
     }
@@ -351,12 +545,28 @@ class VideoPlayerView: UIView {
     // MARK: - Cleanup
     
     func cleanup() {
-        pause()
+        print("🧹 VideoPlayerView - Cleaning up resources")
+        
+        // Store final progress before cleanup if within window
+        if let cell = findParentCell(),
+           VideoPlaybackController.shared.shouldMaintainPlayer(for: cell),
+           let currentTime = player?.currentTime() {
+            VideoPlaybackController.shared.recordProgress(for: cell, time: currentTime)
+        }
+        
+        // Remove time observer
+        if let timeObserver = timeObserver {
+            player?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+        
+        player?.pause()
         playerLayer?.removeFromSuperlayer()
         player = nil
         playerLayer = nil
         iconFadeWorkItem?.cancel()
         iconFadeWorkItem = nil
+        loadingState = .initial
         
         if let playerItem = player?.currentItem {
             playerItem.removeObserver(self, forKeyPath: #keyPath(AVPlayerItem.status))
@@ -381,5 +591,25 @@ class VideoPlayerView: UIView {
     /// - Returns: The current quality setting
     func getCurrentQuality() -> VideoQuality {
         return currentQuality
+    }
+    
+    private func updateUIForLoadingState() {
+        print("📹 VideoPlayerView - State updated to: \(loadingState)")
+        switch loadingState {
+        case .initial:
+            loadingIndicator.stopAnimating()
+            errorView.isHidden = true
+            
+        case .loading:
+            loadingIndicator.startAnimating()
+            errorView.isHidden = true
+            
+        case .playing, .paused:
+            loadingIndicator.stopAnimating()
+            errorView.isHidden = true
+            
+        case .error(let error):
+            handleVideoLoadError(error)
+        }
     }
 } 

@@ -99,9 +99,9 @@ class FeedViewController: UIViewController {
                 // Force layout update
                 self.collectionView.layoutIfNeeded()
                 
-                // Start playing the first video
+                // Start playing the first video using the new controller
                 if !initialVideos.isEmpty {
-                    self.playVisibleVideos()
+                    self.updateVideoPlayback()
                 }
             }
         } catch {
@@ -183,63 +183,21 @@ class FeedViewController: UIViewController {
     
     // MARK: - Video Playback Management
     
-    private func playVisibleVideos() {
-        // First, pause ALL videos in the collection view
-        collectionView.visibleCells.forEach { cell in
-            if let videoCell = cell as? VideoPlayerCell {
-                print("Pausing video at index: \(videoCell.tag)")
-                videoCell.pause()
-            }
-        }
-        
-        // Then, only play the most visible cell if it meets our visibility threshold
-        if let mostVisibleCell = getMostVisibleCell() as? VideoPlayerCell {
-            print("Playing video at index: \(mostVisibleCell.tag)")
-            mostVisibleCell.play()
-        } else {
-            print("No cell met the visibility threshold for playback")
-        }
-    }
-    
-    private func getMostVisibleCell() -> UICollectionViewCell? {
-        let visibleCells = collectionView.visibleCells
-        guard !visibleCells.isEmpty else { return nil }
-        
-        let cellVisibilityPairs = visibleCells.map { cell -> (UICollectionViewCell, CGFloat) in
-            let cellRect = cell.convert(cell.bounds, to: collectionView)
-            let intersection = cellRect.intersection(collectionView.bounds)
-            let visibleArea = intersection.height / cellRect.height
-            
-            // Debug logging
-            print("Cell at index \((cell as? VideoPlayerCell)?.tag ?? -1) visibility: \(visibleArea)")
-            
-            return (cell, visibleArea)
-        }
-        
-        // Only consider cells that are more than 50% visible
-        let threshold: CGFloat = 0.5
-        let mostVisiblePair = cellVisibilityPairs
-            .filter { $0.1 > threshold }
-            .max { $0.1 < $1.1 }
-        
-        return mostVisiblePair?.0
+    /// Updates the video playback state based on currently visible cells
+    private func updateVideoPlayback() {
+        print("📱 FeedViewController - Updating video playback")
+        let visibleCells = collectionView.visibleCells.compactMap { $0 as? VideoPlayerCell }
+        VideoPlaybackController.shared.updatePlayback(for: visibleCells, scrolling: isScrolling)
     }
     
     // MARK: - Tab Visibility
     
     func handleTabVisibilityChange(isVisible: Bool) {
+        print("📱 FeedViewController - Tab visibility changed to: \(isVisible)")
         self.isVisible = isVisible
-        if !isVisible {
-            // Pause all videos when leaving the tab
-            collectionView.visibleCells.forEach { cell in
-                if let videoCell = cell as? VideoPlayerCell {
-                    print("Pausing video at index: \(videoCell.tag) due to tab change")
-                    videoCell.pause()
-                }
-            }
-        } else {
-            // Resume playback of the most visible video when returning
-            playVisibleVideos()
+        VideoPlaybackController.shared.setTabVisibility(isVisible)
+        if isVisible {
+            updateVideoPlayback()
         }
     }
     
@@ -289,16 +247,12 @@ extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelega
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        // When a cell is about to be displayed, check if it should be playing
-        playVisibleVideos()
+        updateVideoPlayback()
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        // Ensure the cell is paused when it's no longer displayed
-        if let videoCell = cell as? VideoPlayerCell {
-            print("Forcing pause for cell leaving screen at index: \(videoCell.tag)")
-            videoCell.pause()
-        }
+        // No need to explicitly pause cells here as VideoPlaybackController handles this
+        print("📱 FeedViewController - Cell at index \(indexPath.item) ended displaying")
     }
 }
 
@@ -319,25 +273,21 @@ extension FeedViewController {
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Only update playback if not actively scrolling
-        if !isScrolling {
-            playVisibleVideos()
-        }
+        updateVideoPlayback()
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        isScrolling = false
         if !decelerate {
-            playVisibleVideos()
+            isScrolling = false
+            updateVideoPlayback()
         }
     }
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         isScrolling = false
-        // Ensure correct video is playing after scroll ends
-        playVisibleVideos()
+        updateVideoPlayback()
         
-        // Load more content if needed
+        // Keep existing content loading logic
         let threshold = scrollView.contentSize.height - scrollView.bounds.height * 2
         if scrollView.contentOffset.y >= threshold {
             loadMoreContent()
