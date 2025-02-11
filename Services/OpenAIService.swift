@@ -44,7 +44,7 @@ class OpenAIService {
     static let shared = OpenAIService()
     
     private let lambdaEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate"
-    private let tagGenerationEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate-tags"
+    private let tagGenerationEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate"
     
     // MARK: - Types
     
@@ -299,7 +299,8 @@ class OpenAIService {
                 ["role": "user", "content": messageContext]
             ],
             "temperature": 0.7,
-            "maxTokens": 500
+            "maxTokens": 500,
+            "path": "/generate-tags"  // Add path parameter to indicate tag generation
         ]
         
         // Create URL request

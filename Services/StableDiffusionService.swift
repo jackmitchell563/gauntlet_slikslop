@@ -75,61 +75,15 @@ class StableDiffusionService {
     // MARK: - Initialization
     
     private init() {
-        setupModelDirectory()
+        // Debug: Print all resources in bundle
+        if let resourcePath = Bundle.main.resourcePath {
+            print("📱 StableDiffusionService - Bundle resources:")
+            let files = try? FileManager.default.contentsOfDirectory(atPath: resourcePath)
+            files?.forEach { print("  - \($0)") }
+        }
     }
     
     // MARK: - Setup
-    
-    /// Sets up the directory for storing model files
-    private func setupModelDirectory() {
-        do {
-            try FileManager.default.createDirectory(
-                at: getModelDirectoryURL(),
-                withIntermediateDirectories: true
-            )
-        } catch {
-            print("❌ StableDiffusionService - Error creating model directory: \(error)")
-        }
-    }
-    
-    // MARK: - Model Management
-    
-    /// Gets the URL for the model directory
-    private func getModelDirectoryURL() -> URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return applicationSupport.appendingPathComponent("StableDiffusion", isDirectory: true)
-    }
-    
-    /// Gets the URL for the CoreML model
-    private func getModelURL() throws -> URL {
-        let modelDir = getModelDirectoryURL()
-        let modelURL = modelDir.appendingPathComponent("CoreMLModel", isDirectory: true)
-        
-        // Check if model exists
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: modelURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            throw StableDiffusionError.modelFilesNotFound
-        }
-        
-        return modelURL
-    }
-    
-    /// Gets the URL for the LoRA weights
-    private func getLoRAURL() throws -> URL {
-        let modelDir = getModelDirectoryURL()
-        let loraURL = modelDir.appendingPathComponent("lora.safetensors")
-        
-        // Check if LoRA file exists
-        guard FileManager.default.fileExists(atPath: loraURL.path) else {
-            throw StableDiffusionError.modelFilesNotFound
-        }
-        
-        return loraURL
-    }
     
     /// Checks if required model files are available
     func areModelFilesAvailable() -> Bool {
@@ -150,29 +104,101 @@ class StableDiffusionService {
             return
         }
         
-        // Create model directory if needed
-        let modelDir = getModelDirectoryURL()
-        try FileManager.default.createDirectory(
-            at: modelDir,
-            withIntermediateDirectories: true
-        )
+        // If files don't exist in the bundle, we can't download them
+        // They must be included in the app bundle
+        throw StableDiffusionError.modelFilesNotFound
+    }
+    
+    /// Gets the URL for the CoreML model
+    private func getModelURL() throws -> URL {
+        // Print bundle URL for debugging
+        if let bundleURL = Bundle.main.resourceURL {
+            print("📱 StableDiffusionService - Bundle URL: \(bundleURL)")
+            
+            // Print all subdirectories and files
+            print("📱 StableDiffusionService - Bundle contents:")
+            if let enumerator = FileManager.default.enumerator(at: bundleURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+                for case let fileURL as URL in enumerator {
+                    let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    let indent = String(repeating: "  ", count: fileURL.pathComponents.count - bundleURL.pathComponents.count)
+                    print("\(indent)- \(isDirectory ? "📁" : "📄") \(fileURL.lastPathComponent)")
+                }
+            }
+        }
         
-        // Get bundle URL for CoreML model
-        guard let bundleModelURL = Bundle.main.url(
-            forResource: "CoreMLModel",
-            withExtension: nil,
-            subdirectory: "Resources"
-        ) else {
+        // Look for CoreMLModel directory directly in the bundle
+        guard let bundleURL = Bundle.main.resourceURL else {
+            print("❌ StableDiffusionService - Bundle URL not found")
             throw StableDiffusionError.modelFilesNotFound
         }
         
-        // Copy CoreML model from bundle
-        let modelURL = modelDir.appendingPathComponent("CoreMLModel", isDirectory: true)
-        try FileManager.default.copyItem(at: bundleModelURL, to: modelURL)
-        progress?(0.8) // CoreML model is 80% of total progress
+        let modelURL = bundleURL.appendingPathComponent("CoreMLModel")
         
-        // For now, we're not using LoRA weights
-        progress?(1.0)
+        // Check if model exists and is a directory
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: modelURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            print("❌ StableDiffusionService - CoreMLModel exists: \(FileManager.default.fileExists(atPath: modelURL.path)), isDirectory: \(isDirectory.boolValue)")
+            print("❌ StableDiffusionService - Attempted path: \(modelURL.path)")
+            throw StableDiffusionError.modelFilesNotFound
+        }
+        
+        // Verify all required components are present
+        let requiredComponents = [
+            "TextEncoder.mlmodelc",
+            "Unet.mlmodelc",
+            "VAEDecoder.mlmodelc",
+            "VAEEncoder.mlmodelc",
+            "vocab.json",
+            "merges.txt"
+        ]
+        
+        print("📱 StableDiffusionService - Verifying model components:")
+        for component in requiredComponents {
+            let componentURL = modelURL.appendingPathComponent(component)
+            let exists = FileManager.default.fileExists(atPath: componentURL.path)
+            print("  - \(component): \(exists ? "✅" : "❌")")
+            
+            if !exists {
+                print("❌ StableDiffusionService - Missing required component: \(component)")
+                throw StableDiffusionError.modelFilesNotFound
+            }
+            
+            // If this is TextEncoder.mlmodelc, check its coremldata.bin
+            if component == "TextEncoder.mlmodelc" {
+                let binURL = componentURL.appendingPathComponent("coremldata.bin")
+                if let data = try? Data(contentsOf: binURL, options: .mappedIfSafe) {
+                    print("📱 StableDiffusionService - TextEncoder coremldata.bin size: \(data.count) bytes")
+                    if data.count >= 4 {
+                        let firstFourBytes = data.prefix(4)
+                        print("📱 StableDiffusionService - First 4 bytes: \(Array(firstFourBytes))")
+                        // Convert to hex for better visibility
+                        let hexString = firstFourBytes.map { String(format: "%02X", $0) }.joined()
+                        print("📱 StableDiffusionService - First 4 bytes (hex): 0x\(hexString)")
+                    }
+                } else {
+                    print("❌ StableDiffusionService - Could not read TextEncoder coremldata.bin")
+                }
+            }
+        }
+        
+        print("📱 StableDiffusionService - Found CoreMLModel with all components at: \(modelURL.path)")
+        return modelURL
+    }
+    
+    /// Gets the URL for the LoRA weights
+    private func getLoRAURL() throws -> URL {
+        // Look directly in the bundle
+        guard let loraURL = Bundle.main.url(
+            forResource: "GachaSplash4",
+            withExtension: "safetensors"
+        ) else {
+            print("❌ StableDiffusionService - GachaSplash4.safetensors not found in bundle")
+            throw StableDiffusionError.modelFilesNotFound
+        }
+        
+        print("📱 StableDiffusionService - Found LoRA weights at: \(loraURL.path)")
+        return loraURL
     }
     
     /// Loads the StableDiffusion pipeline

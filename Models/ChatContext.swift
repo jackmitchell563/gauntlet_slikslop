@@ -12,8 +12,8 @@ struct ChatContext {
     let relationshipChange: Int
     
     /// Whether this context qualifies for image generation
-    var qualifiesForImageGeneration: Bool {
-        relationshipChange >= 100
+    var qualifiesForImageGeneration: Bool { // TODO: Change to >= 100
+        relationshipChange >= 0
     }
     
     /// Creates a chat context
