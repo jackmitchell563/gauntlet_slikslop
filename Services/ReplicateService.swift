@@ -153,11 +153,11 @@ class ReplicateService {
         
         // Create a simple character-based prompt
         let characterPrompt = """
+            (((masterpiece, best quality, ultra-detailed, illustration))), \
+            isometric, 1girl, 1woman, solo, mature female, mid shot, upper body, <lora:genshinfull1:1>, looking at viewer, \
             \(character.name) from \(character.game), \
             \(character.personalityProfile), \
-            (((masterpiece, best quality, extreme detail))), \
-            1girl, solo, mature female, <lora:genshinfull1:1>, \
-            perfect fingers, perfect lighting, \
+            perfect lighting, magic circle, magic spell, VFX, effect, particles, light particles, glowing effect, wind effect around body, \
             \(prompt)
             """
         
@@ -168,8 +168,8 @@ class ReplicateService {
             "prompt": characterPrompt,
             "scheduler": "K_EULER",
             "num_outputs": 1,
-            "guidance_scale": 7,
-            "negative_prompt": "FastNegativeV2, EasyNegative, BadDream, paintings, sketches, bad hands, fingers, (worst quality:2), (low quality:2), 2girls, bad artist, text, error",
+            "guidance_scale": 7.5,
+            "negative_prompt": "FastNegativeV2, EasyNegative, BadDream, paintings, sketches, hands, contortionist, amputee, polydactyly, deformed, distorted, misshapen, malformed, abnormal, mutant, defaced, shapeless, (negative_hand:1.0), bad hands, fingers, (worst quality:2), (low quality:2), 2girls, bad artist, text, error, bad_prompt, (low quality, worst quality:1.4),(monochrome:1.1), (wood, stone:1.5), loli, child, bad-artist, badhandv4, easynegative, worst pose, more leg, poorly leg, mutated nipple, missing nipple, deformed pose, 4leg, (deformed:1.8),(malformed hands:1.4),(poorly drawn hands:1.4),(mutated fingers:1.4),(bad anatomy:1.5), (extra hand: 1.4, extra leg:1.9), (extra limbs:1.35),(poorly drawn face:1.4),(signature:1.2),(artist name:1.2),(watermark:1.2), missing eye, ((long body part)), weird pose, (mutated body), out of frame head, blur object, blur, mutated eyes, malformed fingers, mutated fingers, combined fingers,",
             "num_inference_steps": 24
         ]
         
