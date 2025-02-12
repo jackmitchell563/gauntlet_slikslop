@@ -1,4 +1,5 @@
 import Foundation
+import UIKit  // Added for UIImage support
 
 /// Represents a message in the chat
 struct ChatMessage: Identifiable {
@@ -21,6 +22,8 @@ struct ChatMessage: Identifiable {
     var imageURL: URL?
     /// Status of image generation, if applicable
     var imageGenerationStatus: ImageGenerationStatus?
+    /// Temporary in-memory image that will be cleared when the chat is closed
+    var ephemeralImage: UIImage?
     
     init(
         id: String = UUID().uuidString,
@@ -30,7 +33,8 @@ struct ChatMessage: Identifiable {
         sequence: Int,
         type: MessageType = .text,
         imageURL: URL? = nil,
-        imageGenerationStatus: ImageGenerationStatus? = nil
+        imageGenerationStatus: ImageGenerationStatus? = nil,
+        ephemeralImage: UIImage? = nil
     ) {
         self.id = id
         self.text = text
@@ -40,6 +44,7 @@ struct ChatMessage: Identifiable {
         self.type = type
         self.imageURL = imageURL
         self.imageGenerationStatus = imageGenerationStatus
+        self.ephemeralImage = ephemeralImage
     }
 }
 

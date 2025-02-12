@@ -247,8 +247,24 @@ class ChatBubbleCell: UICollectionViewCell {
                 case .generating:
                     showLoadingState(message: "Generating...")
                 case .completed:
-                    if let imageURL = message.imageURL {
-                        loadImage(from: imageURL)
+                    if let image = message.ephemeralImage {
+                        imageView.image = image
+                        loadingSpinner?.removeFromSuperview()
+                        loadingSpinner = nil
+                    } else {
+                        // Try to load from local storage
+                        do {
+                            if let storedImage = try StableDiffusionService.shared.loadImageFromStorage(messageId: message.id) {
+                                imageView.image = storedImage
+                                loadingSpinner?.removeFromSuperview()
+                                loadingSpinner = nil
+                            } else {
+                                showErrorState()
+                            }
+                        } catch {
+                            print("❌ ChatBubbleCell - Error loading stored image: \(error)")
+                            showErrorState()
+                        }
                     }
                 case .failed:
                     showErrorState()
@@ -260,22 +276,6 @@ class ChatBubbleCell: UICollectionViewCell {
     }
     
     // MARK: - Helper Methods
-    
-    private func loadImage(from url: URL) {
-        Task {
-            do {
-                let image = try await ImageCacheService.shared.getImage(from: url)
-                await MainActor.run {
-                    imageView.image = image
-                    loadingSpinner?.removeFromSuperview()
-                    loadingSpinner = nil
-                }
-            } catch {
-                print("❌ ChatBubbleCell - Error loading image: \(error)")
-                showErrorState()
-            }
-        }
-    }
     
     private func showLoadingState(message: String) {
         loadingSpinner?.removeFromSuperview()

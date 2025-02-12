@@ -283,7 +283,13 @@ class StableDiffusionService {
             
             // Configure pipeline
             let config = MLModelConfiguration()
+            #if targetEnvironment(simulator)
+            // Force CPU-only computation in simulator
+            config.computeUnits = .cpuOnly
+            print("📱 StableDiffusionService - Configuring for CPU-only computation in simulator")
+            #else
             config.computeUnits = .cpuAndGPU
+            #endif
             
             // Initialize pipeline
             pipeline = try StableDiffusionPipeline(
@@ -341,6 +347,61 @@ class StableDiffusionService {
             // Try to process requests
             processPendingRequests()
         }
+    }
+    
+    // MARK: - Image Storage
+    
+    /// Gets the URL for the local image storage directory
+    private func getImageStorageURL() throws -> URL {
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw StableDiffusionError.modelDirectoryCreationFailed
+        }
+        
+        let imageDirectory = documentsDirectory.appendingPathComponent("GeneratedImages", isDirectory: true)
+        
+        // Create directory if it doesn't exist
+        if !FileManager.default.fileExists(atPath: imageDirectory.path) {
+            try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        }
+        
+        return imageDirectory
+    }
+    
+    /// Saves an image to local storage
+    /// - Parameters:
+    ///   - image: The image to save
+    ///   - messageId: The ID of the associated message
+    /// - Returns: The local URL where the image is stored
+    func saveImageLocally(_ image: UIImage, messageId: String) throws -> URL {
+        let imageDirectory = try getImageStorageURL()
+        let imageURL = imageDirectory.appendingPathComponent("\(messageId).jpg")
+        
+        // Convert image to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw StableDiffusionError.pipelineError("Failed to convert image to JPEG")
+        }
+        
+        // Save to disk
+        try imageData.write(to: imageURL)
+        print("📱 StableDiffusionService - Saved image to: \(imageURL.path)")
+        
+        return imageURL
+    }
+    
+    /// Loads an image from local storage
+    /// - Parameter messageId: The ID of the message associated with the image
+    /// - Returns: The loaded image, if it exists
+    func loadImageFromStorage(messageId: String) throws -> UIImage? {
+        let imageDirectory = try getImageStorageURL()
+        let imageURL = imageDirectory.appendingPathComponent("\(messageId).jpg")
+        
+        guard FileManager.default.fileExists(atPath: imageURL.path),
+              let imageData = try? Data(contentsOf: imageURL),
+              let image = UIImage(data: imageData) else {
+            return nil
+        }
+        
+        return image
     }
     
     // MARK: - Private Methods
@@ -410,9 +471,18 @@ class StableDiffusionService {
     /// Checks if the device supports required GPU features
     private func checkDeviceSupport() throws {
         let device = MTLCreateSystemDefaultDevice()
+        
+        #if targetEnvironment(simulator)
+        // In simulator, we'll allow the code to proceed but with CPU-only computation
+        // This ensures development can continue in simulator while maintaining safety checks for real devices
+        print("📱 StableDiffusionService - Running in simulator mode with CPU-only computation")
+        return
+        #else
+        // On physical devices, we maintain our GPU family requirement
         guard device?.supportsFamily(.apple7) == true else {
             throw StableDiffusionError.deviceNotSupported
         }
+        #endif
     }
     
     /// Optimizes the pipeline for the current device

@@ -123,10 +123,11 @@ class CharacterChatService {
             timestamp: Date(),
             sequence: nextSequence + 1,
             type: shouldGenerateImage ? .textWithImage : .text,
-            imageGenerationStatus: shouldGenerateImage ? .queued : nil
+            imageGenerationStatus: shouldGenerateImage ? .queued : nil,
+            ephemeralImage: nil  // New property for in-memory image
         )
         
-        // Update cache
+        // Update cache and save messages
         messages.append(responseMessage)
         messageCache[chatId] = messages
         
@@ -152,11 +153,9 @@ class CharacterChatService {
                     // Generate image
                     let image = try await ImageGenerationService.shared.generateImageForChat(context: context)
                     
-                    // Save image and get URL
-                    let imageURL = try await saveImage(image, messageId: responseMessage.id)
-                    
-                    // Update message with image URL
-                    responseMessage.imageURL = imageURL
+                    // Store image in memory and on disk
+                    responseMessage.ephemeralImage = image
+                    try StableDiffusionService.shared.saveImageLocally(image, messageId: responseMessage.id)
                     responseMessage.imageGenerationStatus = .completed
                     try await saveChatMessage(responseMessage, characterId: character.id)
                     
@@ -320,11 +319,7 @@ class CharacterChatService {
             "type": message.type.rawValue
         ]
         
-        // Add image-related fields if present
-        if let imageURL = message.imageURL {
-            messageData["imageURL"] = imageURL.absoluteString
-        }
-        
+        // Add image generation status if present
         if let status = message.imageGenerationStatus {
             switch status {
             case .queued:
@@ -390,17 +385,5 @@ class CharacterChatService {
             relationshipStatus: relationshipStatus,
             relationshipChange: relationshipChange
         )
-    }
-    
-    /// Saves an image and returns its URL
-    /// - Parameters:
-    ///   - image: The image to save
-    ///   - messageId: ID of the associated message
-    /// - Returns: URL where the image is stored
-    private func saveImage(_ image: UIImage, messageId: String) async throws -> URL {
-        // TODO: Implement image storage
-        // This should save the image to Firebase Storage or similar
-        // and return the URL where it can be accessed
-        fatalError("Image storage not implemented")
     }
 } 

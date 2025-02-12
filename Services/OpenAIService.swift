@@ -262,7 +262,7 @@ class OpenAIService {
         
         // Prepare system prompt for tag generation
         let systemPrompt = """
-            You are an expert at generating Stable Diffusion prompts.
+            You are an expert at generating Stable Diffusion prompts, specializing in creating high-quality character images.
             Given the chat context and character information, generate appropriate positive and negative prompts.
             
             Character: \(context.character.name) from \(context.character.game)
@@ -271,20 +271,49 @@ class OpenAIService {
             Current relationship: \(context.relationshipStatus)
             Recent relationship change: \(context.relationshipChange)
             
-            Guidelines for prompts:
-            1. Positive prompt should capture:
-               - The character's appearance and style
-               - The emotional tone of the interaction
-               - The setting and atmosphere
-               - High-quality image indicators
+            IMPORTANT: Return ONLY comma-separated descriptors, NO full sentences. Follow this exact format:
             
-            2. Negative prompt should avoid:
-               - Common image generation artifacts
-               - Inappropriate or out-of-character elements
-               - Poor quality indicators
-               - Conflicting styles
+            Example positive prompt:
+            (masterpiece), (best quality), shenhe (genshin impact), [(white background:1.5)::5], isometric, 1woman, mature female, mid shot, upper body, blue eyes, long silver hair, elegant dress, shoulder cutout, side glance, confident pose, looking at viewer, magic circle, ice particles, glowing effects
             
-            Format your response as valid JSON with 'positive_prompt' and 'negative_prompt' fields.
+            Example negative prompt:
+            (low quality, worst quality:1.4), (monochrome:1.1), bad-artist, badhandv4, easynegative, (deformed:1.8), (malformed hands:1.4), (poorly drawn hands:1.4), (mutated fingers:1.4), (bad anatomy:1.5), (extra limbs:1.35), (poorly drawn face:1.4), (signature:1.2), (watermark:1.2)
+            
+            Required elements in order (comma-separated):
+            
+            Positive prompt:
+            1. Quality tags: (masterpiece), (best quality)
+            2. Character identifier: charactername (gamename) - REQUIRED, EXACTLY AS PROVIDED
+            3. Background: [(white background:1.5)::5] or appropriate setting
+            4. Shot composition: isometric/mid shot/upper body
+            5. Character details:
+               - Demographics: 1woman/1man, mature/young
+               - Face/Hair: eye color, hair style/color
+               - Clothing: specific outfit details
+               - Pose: standing/sitting, viewing angle
+            6. Effects (based on context):
+               - Magic/elemental effects
+               - Particles/glows
+               - Environmental effects
+            7. Emotional state (based on relationship):
+               - Negative: cold glare, frowning, hostile pose
+               - Neutral: professional stance, neutral expression
+               - Positive: warm smile, friendly gesture, soft expression
+            
+            Negative prompt (comma-separated):
+            1. (low quality, worst quality:1.4)
+            2. (monochrome:1.1)
+            3. bad-artist, badhandv4, easynegative
+            4. (deformed:1.8), (malformed hands:1.4), (poorly drawn hands:1.4), (mutated fingers:1.4), (bad anatomy:1.5)
+            5. (extra hand:1.4), (extra limbs:1.35)
+            6. (poorly drawn face:1.4), (signature:1.2), (watermark:1.2)
+            
+            Weight syntax:
+            - Basic: (tag:1.4)
+            - Emphasis: [(tag:1.5)::5]
+            - Stack weights as needed
+            
+            Format response as JSON with 'positive_prompt' and 'negative_prompt' fields, each containing a single string of comma-separated descriptors.
             """
         
         // Prepare recent messages for context
@@ -299,7 +328,7 @@ class OpenAIService {
                 ["role": "user", "content": messageContext]
             ],
             "temperature": 0.7,
-            "maxTokens": 500,
+            "maxTokens": 1000,
             "path": "/generate-tags"  // Add path parameter to indicate tag generation
         ]
         
