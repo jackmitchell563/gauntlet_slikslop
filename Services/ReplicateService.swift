@@ -12,7 +12,7 @@ class ReplicateService {
     private let apiEndpoint = "https://api.replicate.com/v1/predictions"
     
     /// Model version ID for Stable Diffusion with LoRA support
-    private let modelVersion = "091495765fa5ef2725a175a57b276ec30dc9d39c22d30410f2ede68a3eab66b3"
+    private let modelVersion = "2fabd9b0e3d54ece7ecf2a1d0ba21b9f150ad8c2d534d671e21d4741f1ced932"
     
     /// CivitAI LoRA URL
     private var loraURL: String {
@@ -98,10 +98,12 @@ class ReplicateService {
     // MARK: - Public Methods
     
     /// Generates an image using the Replicate API
-    /// - Parameter prompt: The prompt describing the image to generate
+    /// - Parameters:
+    ///   - prompt: The prompt describing the image to generate
+    ///   - character: The character to generate the image for
     /// - Returns: The generated image
     /// - Throws: ReplicateError if generation fails
-    func generateImage(prompt: String) async throws -> UIImage {
+    func generateImage(prompt: String, character: GameCharacter) async throws -> UIImage {
         print("📱 ReplicateService - Starting image generation with prompt: \(prompt)")
         
         // Verify API token
@@ -112,7 +114,7 @@ class ReplicateService {
         
         do {
             // Start prediction
-            let predictionData = try await makeAPIRequest(prompt: prompt, token: token)
+            let predictionData = try await makeAPIRequest(prompt: prompt, character: character, token: token)
             
             // Parse initial response
             let prediction = try JSONDecoder().decode(PredictionResponse.self, from: predictionData)
@@ -139,22 +141,58 @@ class ReplicateService {
     /// Makes the initial API request to start image generation
     /// - Parameters:
     ///   - prompt: The image generation prompt
+    ///   - character: The character to generate the image for
     ///   - token: The API token
     /// - Returns: Response data from the API
     /// - Throws: ReplicateError if the request fails
-    private func makeAPIRequest(prompt: String, token: String) async throws -> Data {
+    private func makeAPIRequest(prompt: String, character: GameCharacter, token: String) async throws -> Data {
         var request = URLRequest(url: URL(string: apiEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Create request body with version and LoRA
+        // Create a simple character-based prompt
+        let characterPrompt = """
+            \(character.name) from \(character.game), \
+            \(character.personalityProfile), \
+            (((masterpiece, best quality, extreme detail))), \
+            1girl, solo, mature female, <lora:genshinfull1:1>, \
+            perfect fingers, perfect lighting, \
+            \(prompt)
+            """
+        
+        // Create request body with all required parameters
+        var input: [String: Any] = [
+            "width": 512,
+            "height": 512,
+            "prompt": characterPrompt,
+            "scheduler": "K_EULER",
+            "num_outputs": 1,
+            "guidance_scale": 7,
+            "negative_prompt": "FastNegativeV2, EasyNegative, BadDream, paintings, sketches, bad hands, fingers, (worst quality:2), (low quality:2), 2girls, bad artist, text, error",
+            "num_inference_steps": 24
+        ]
+        
+        // Only add character field if it's in the predefined list
+        let characterId = character.name.lowercased().replacingOccurrences(of: " ", with: "") + "def"
+        let validCharacters = Set([
+            "kukishinobudef", "luminedef", "doridef", "fischldef", "keqingdef", "lisadef", 
+            "raidenshogundef", "yaemikodef", "kujousaradef", "beidoudef", "dionadef", 
+            "ganyudef", "kamisatoayakadef", "shenhedef", "euladef", "rosariadef", 
+            "qiqidef", "layladef", "niloudef", "kokomidef", "yelandef", "monadef", 
+            "barbaradef", "candacedef", "colleidef", "yaoyaodef", "nahidadef", 
+            "faruzandef", "jeanfavonian", "sucrosedef", "sayudef", "xianglingdef", 
+            "dehyadef", "yoimiyadef", "kleedef", "hutaodef", "xinyandef", "amber5star", 
+            "yanfeidef", "noelledef", "yunjindef", "ningguangdef"
+        ])
+        
+        if validCharacters.contains(characterId) {
+            input["character"] = characterId
+        }
+        
         let body: [String: Any] = [
             "version": modelVersion,
-            "input": [
-                "prompt": prompt,
-                "hf_lora": loraURL
-            ]
+            "input": input
         ]
         
         // Log request body for debugging

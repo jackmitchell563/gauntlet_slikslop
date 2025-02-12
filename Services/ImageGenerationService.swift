@@ -59,7 +59,8 @@ class ImageGenerationService {
             // Generate image
             let image = try await stableDiffusion.generateImage(
                 positivePrompt: positivePrompt,
-                negativePrompt: negativePrompt
+                negativePrompt: negativePrompt,
+                character: context.character
             )
             
             print("📱 ImageGenerationService - Generated image successfully")

@@ -66,16 +66,17 @@ class StableDiffusionService {
     /// - Parameters:
     ///   - positivePrompt: What to include in the image
     ///   - negativePrompt: What to exclude from the image
+    ///   - character: The character to generate the image for
     /// - Returns: The generated image
     /// - Throws: StableDiffusionError if generation fails
-    func generateImage(positivePrompt: String, negativePrompt: String) async throws -> UIImage {
+    func generateImage(positivePrompt: String, negativePrompt: String, character: GameCharacter) async throws -> UIImage {
         print("📱 StableDiffusionService - Generating image")
         print("📱 Positive prompt: \(positivePrompt)")
         print("📱 Negative prompt: \(negativePrompt)")
         
         do {
             // Generate image using Replicate
-            let image = try await replicate.generateImage(prompt: "[(white background:1.5)::5], isometric OR hexagon , 1 girl, mid shot, full body, " + positivePrompt)
+            let image = try await replicate.generateImage(prompt: positivePrompt, character: character)
             print("📱 StableDiffusionService - Image generated successfully")
             return image
             
@@ -91,14 +92,19 @@ class StableDiffusionService {
     // MARK: - Image Storage
     
     /// Gets the URL for the local image storage directory
+    /// - Parameter character: Optional character to get specific directory for
     /// - Returns: URL of the storage directory
     /// - Throws: StableDiffusionError if directory creation fails
-    private func getImageStorageURL() throws -> URL {
+    private func getImageStorageURL(for character: GameCharacter? = nil) throws -> URL {
         guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw StableDiffusionError.modelDirectoryCreationFailed
         }
         
-        let imageDirectory = documentsDirectory.appendingPathComponent("GeneratedImages", isDirectory: true)
+        var imageDirectory = documentsDirectory.appendingPathComponent("GeneratedImages", isDirectory: true)
+        
+        if let character = character {
+            imageDirectory = imageDirectory.appendingPathComponent(character.id, isDirectory: true)
+        }
         
         // Create directory if it doesn't exist
         if !FileManager.default.fileExists(atPath: imageDirectory.path) {
@@ -112,10 +118,11 @@ class StableDiffusionService {
     /// - Parameters:
     ///   - image: The image to save
     ///   - messageId: The ID of the associated message
+    ///   - character: The character the image was generated for
     /// - Returns: The local URL where the image is stored
     /// - Throws: StableDiffusionError if save fails
-    func saveImageLocally(_ image: UIImage, messageId: String) throws -> URL {
-        let imageDirectory = try getImageStorageURL()
+    func saveImageLocally(_ image: UIImage, messageId: String, character: GameCharacter? = nil) throws -> URL {
+        let imageDirectory = try getImageStorageURL(for: character)
         let imageURL = imageDirectory.appendingPathComponent("\(messageId).jpg")
         
         // Convert image to JPEG data
@@ -131,11 +138,13 @@ class StableDiffusionService {
     }
     
     /// Loads an image from local storage
-    /// - Parameter messageId: The ID of the message associated with the image
+    /// - Parameters:
+    ///   - messageId: The ID of the message associated with the image
+    ///   - character: Optional character to load from specific directory
     /// - Returns: The loaded image, if it exists
     /// - Throws: StableDiffusionError if load fails
-    func loadImageFromStorage(messageId: String) throws -> UIImage? {
-        let imageDirectory = try getImageStorageURL()
+    func loadImageFromStorage(messageId: String, character: GameCharacter? = nil) throws -> UIImage? {
+        let imageDirectory = try getImageStorageURL(for: character)
         let imageURL = imageDirectory.appendingPathComponent("\(messageId).jpg")
         
         guard FileManager.default.fileExists(atPath: imageURL.path),
@@ -145,5 +154,53 @@ class StableDiffusionService {
         }
         
         return image
+    }
+    
+    /// Gets all images for a specific character
+    /// - Parameter character: The character to get images for
+    /// - Returns: Array of image URLs
+    /// - Throws: StableDiffusionError if directory access fails
+    func getImagesForCharacter(_ character: GameCharacter) throws -> [URL] {
+        let directory = try getImageStorageURL(for: character)
+        let fileURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        return fileURLs.filter { $0.pathExtension == "jpg" }
+    }
+    
+    /// Migrates existing images to character-specific folders
+    /// - Parameter messages: Array of chat messages containing image references
+    /// - Throws: StableDiffusionError if migration fails
+    func migrateExistingImages(messages: [ChatMessage]) throws {
+        let oldDirectory = try getImageStorageURL()
+        let fileManager = FileManager.default
+        
+        for message in messages {
+            // Skip non-image messages
+            guard message.type == .textWithImage || message.type == .image,
+                  let character = message.character else {
+                continue
+            }
+            
+            let oldImageURL = oldDirectory.appendingPathComponent("\(message.id).jpg")
+            let newImageURL = try getImageStorageURL(for: character)
+                .appendingPathComponent("\(message.id).jpg")
+            
+            // Skip if image doesn't exist or is already migrated
+            guard fileManager.fileExists(atPath: oldImageURL.path),
+                  !fileManager.fileExists(atPath: newImageURL.path) else {
+                continue
+            }
+            
+            do {
+                try fileManager.moveItem(at: oldImageURL, to: newImageURL)
+                print("📱 StableDiffusionService - Migrated image: \(message.id) to character folder: \(character.id)")
+            } catch {
+                print("❌ StableDiffusionService - Failed to migrate image: \(message.id): \(error)")
+                // Continue with other images even if one fails
+                continue
+            }
+        }
     }
 } 

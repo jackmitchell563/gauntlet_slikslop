@@ -10,6 +10,7 @@ class ChatViewController: UIViewController {
     private let chatService = CharacterChatService.shared
     private var relationshipStatus: Int = 0
     private let db = Firestore.firestore()  // Add Firestore database reference
+    private let galleryService = CharacterGalleryService.shared
     
     // Loading state
     private var isLoading = false {
@@ -22,6 +23,18 @@ class ChatViewController: UIViewController {
     
     private lazy var bannerView: CharacterBannerView = {
         let view = CharacterBannerView(character: character)
+        view.delegate = self
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private lazy var imageOverlayView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        view.alpha = 0
+        view.isUserInteractionEnabled = false // Allow interaction pass-through
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -73,8 +86,10 @@ class ChatViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupKeyboardObservers()
+        setupGalleryObservers()
         loadChatHistory()
         loadRelationshipStatus()
+        updateGalleryCount()
         
         // Configure sheet presentation behavior
         if let sheet = sheetPresentationController {
@@ -105,6 +120,7 @@ class ChatViewController: UIViewController {
         
         view.addSubview(bannerView)
         view.addSubview(collectionView)
+        view.addSubview(imageOverlayView)  // Add overlay view
         view.addSubview(typingIndicator)
         view.addSubview(chatInputView)
         
@@ -115,12 +131,18 @@ class ChatViewController: UIViewController {
             bannerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             bannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bannerView.heightAnchor.constraint(equalToConstant: 250),  // Increased height to accommodate relationship text
+            bannerView.heightAnchor.constraint(equalToConstant: 250),
             
             collectionView.topAnchor.constraint(equalTo: bannerView.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: typingIndicator.topAnchor),
+            
+            // Add overlay view constraints
+            imageOverlayView.topAnchor.constraint(equalTo: bannerView.bottomAnchor),
+            imageOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            imageOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            imageOverlayView.bottomAnchor.constraint(equalTo: typingIndicator.topAnchor),
             
             typingIndicator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             typingIndicator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -145,6 +167,15 @@ class ChatViewController: UIViewController {
             self,
             selector: #selector(handleKeyboardWillHide),
             name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+    
+    private func setupGalleryObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGalleryImageDeleted(_:)),
+            name: NSNotification.Name("GalleryImageDeleted"),
             object: nil
         )
     }
@@ -276,9 +307,11 @@ class ChatViewController: UIViewController {
                 updatedMessage.imageGenerationStatus = .generating
             case "completed":
                 updatedMessage.imageGenerationStatus = .completed
-                if let urlString = data["imageURL"] as? String,
-                   let url = URL(string: urlString) {
-                    updatedMessage.imageURL = url
+                // If we have an ephemeral image, display it with animation
+                if let image = updatedMessage.ephemeralImage {
+                    DispatchQueue.main.async {
+                        self.displayGeneratedImage(image)
+                    }
                 }
             case "failed":
                 let errorMessage = data["imageGenerationError"] as? String ?? "Unknown error"
@@ -331,6 +364,56 @@ class ChatViewController: UIViewController {
         )
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
+    }
+    
+    // MARK: - Image Display
+    
+    /// Displays a generated image with fade in/out animation
+    /// - Parameter image: The image to display
+    private func displayGeneratedImage(_ image: UIImage) {
+        // Configure the image
+        imageOverlayView.image = image
+        
+        // Fade in animation (1 second)
+        UIView.animate(withDuration: 1.0, animations: {
+            self.imageOverlayView.alpha = 1
+        }) { _ in
+            // Wait 2 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                // Fade out animation (1 second)
+                UIView.animate(withDuration: 1.0) {
+                    self.imageOverlayView.alpha = 0
+                } completion: { _ in
+                    // Clear the image after animation
+                    self.imageOverlayView.image = nil
+                    // Update gallery count after new image is generated
+                    self.updateGalleryCount()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Gallery Support
+    
+    private func updateGalleryCount() {
+        Task {
+            do {
+                let count = try galleryService.getImageCount(for: character)
+                await MainActor.run {
+                    bannerView.updateGalleryCount(count)
+                }
+            } catch {
+                print("❌ ChatViewController - Failed to get gallery count: \(error)")
+            }
+        }
+    }
+    
+    @objc private func handleGalleryImageDeleted(_ notification: Notification) {
+        guard let notificationCharacter = notification.userInfo?["character"] as? GameCharacter,
+              notificationCharacter.id == character.id else {
+            return
+        }
+        updateGalleryCount()
     }
 }
 
@@ -397,5 +480,15 @@ extension ChatViewController: ChatInputViewDelegate {
                 }
             }
         }
+    }
+}
+
+// MARK: - CharacterBannerViewDelegate
+
+extension ChatViewController: CharacterBannerViewDelegate {
+    func characterBannerViewDidTapGallery(_ bannerView: CharacterBannerView) {
+        let galleryVC = CharacterGalleryViewController(character: character)
+        let nav = UINavigationController(rootViewController: galleryVC)
+        present(nav, animated: true)
     }
 } 

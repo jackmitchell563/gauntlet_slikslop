@@ -13,6 +13,8 @@ struct ChatMessage: Identifiable {
     let timestamp: Date
     /// Sequence number determining message order (1-based)
     let sequence: Int
+    /// Character associated with this message (for image storage)
+    let character: GameCharacter?
     
     // MARK: - Image Support
     
@@ -31,6 +33,7 @@ struct ChatMessage: Identifiable {
         sender: MessageSender,
         timestamp: Date = .now,
         sequence: Int,
+        character: GameCharacter? = nil,
         type: MessageType = .text,
         imageURL: URL? = nil,
         imageGenerationStatus: ImageGenerationStatus? = nil,
@@ -41,6 +44,7 @@ struct ChatMessage: Identifiable {
         self.sender = sender
         self.timestamp = timestamp
         self.sequence = sequence
+        self.character = character
         self.type = type
         self.imageURL = imageURL
         self.imageGenerationStatus = imageGenerationStatus

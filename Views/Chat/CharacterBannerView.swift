@@ -1,12 +1,17 @@
 import UIKit
 
 /// View for displaying character banner and information
+protocol CharacterBannerViewDelegate: AnyObject {
+    func characterBannerViewDidTapGallery(_ bannerView: CharacterBannerView)
+}
+
 class CharacterBannerView: UIView {
     // MARK: - Properties
     
     private let character: GameCharacter
     private var isImageLoaded = false
     private var relationshipStatus: Int = 0
+    weak var delegate: CharacterBannerViewDelegate?
     
     // MARK: - Scaling Properties
     
@@ -100,6 +105,13 @@ class CharacterBannerView: UIView {
         return label
     }()
     
+    private lazy var galleryButton: GalleryButton = {
+        let button = GalleryButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(galleryButtonTapped), for: .touchUpInside)
+        return button
+    }()
+    
     // MARK: - Initialization
     
     init(character: GameCharacter) {
@@ -126,6 +138,7 @@ class CharacterBannerView: UIView {
         addSubview(nameLabel)
         addSubview(gameLabel)
         addSubview(relationshipLabel)
+        addSubview(galleryButton)
         
         // Configure labels
         nameLabel.text = character.name
@@ -164,6 +177,12 @@ class CharacterBannerView: UIView {
             profileImageView.centerYAnchor.constraint(equalTo: profileContainerView.centerYAnchor),
             profileImageWidth,
             profileImageHeight,
+            
+            // Gallery button
+            galleryButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            galleryButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            galleryButton.widthAnchor.constraint(equalToConstant: 44),
+            galleryButton.heightAnchor.constraint(equalToConstant: 44),
             
             // Labels with tighter spacing
             nameLabel.topAnchor.constraint(equalTo: profileContainerView.bottomAnchor, constant: 4),
@@ -238,6 +257,31 @@ class CharacterBannerView: UIView {
         let descriptor = RelationshipStatusView.RelationshipDescriptor.from(percentage: percentage)
         relationshipLabel.text = String(format: "%.1f%% - %@", percentage, descriptor.rawValue)
         relationshipLabel.textColor = percentage >= 0 ? .systemGreen : .systemRed
+    }
+    
+    /// Updates the gallery badge count
+    /// - Parameter count: Number of images in the gallery
+    func updateGalleryCount(_ count: Int) {
+        galleryButton.updateBadgeCount(count)
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func galleryButtonTapped() {
+        delegate?.characterBannerViewDidTapGallery(self)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func findViewController() -> UIViewController? {
+        var responder: UIResponder? = self
+        while let nextResponder = responder?.next {
+            if let viewController = nextResponder as? UIViewController {
+                return viewController
+            }
+            responder = nextResponder
+        }
+        return nil
     }
 }
 

@@ -84,7 +84,8 @@ class CharacterChatService {
             text: text,
             sender: .user,
             timestamp: Date(),
-            sequence: nextSequence
+            sequence: nextSequence,
+            character: character
         )
         
         // Get chat history
@@ -122,9 +123,10 @@ class CharacterChatService {
             sender: .character,
             timestamp: Date(),
             sequence: nextSequence + 1,
+            character: character,
             type: shouldGenerateImage ? .textWithImage : .text,
             imageGenerationStatus: shouldGenerateImage ? .queued : nil,
-            ephemeralImage: nil  // New property for in-memory image
+            ephemeralImage: nil
         )
         
         // Update cache and save messages
@@ -151,11 +153,15 @@ class CharacterChatService {
                     try await saveChatMessage(responseMessage, characterId: character.id)
                     
                     // Generate image
-                    let image = try await ImageGenerationService.shared.generateImageForChat(context: context)
+                    let image = try await StableDiffusionService.shared.generateImage(
+                        positivePrompt: responseText,
+                        negativePrompt: "",
+                        character: character
+                    )
                     
                     // Store image in memory and on disk
                     responseMessage.ephemeralImage = image
-                    try StableDiffusionService.shared.saveImageLocally(image, messageId: responseMessage.id)
+                    try StableDiffusionService.shared.saveImageLocally(image, messageId: responseMessage.id, character: character)
                     responseMessage.imageGenerationStatus = .completed
                     try await saveChatMessage(responseMessage, characterId: character.id)
                     
@@ -298,6 +304,35 @@ class CharacterChatService {
         relationshipCache[chatId] = newStatus
         
         print("📱 CharacterChatService - Relationship status updated to: \(newStatus)")
+    }
+    
+    // MARK: - Migration
+    
+    /// Migrates existing images to character-specific folders
+    /// - Returns: Number of images migrated
+    /// - Throws: ChatError if migration fails
+    func migrateExistingImages() async throws -> Int {
+        print("📱 CharacterChatService - Starting image migration")
+        
+        var allMessages: [ChatMessage] = []
+        let characters = try await CharacterService.shared.fetchCharacters()
+        
+        // Collect all messages with images
+        for character in characters {
+            let messages = try await loadChatHistory(for: character)
+            allMessages.append(contentsOf: messages)
+        }
+        
+        // Migrate images using StableDiffusionService
+        do {
+            try StableDiffusionService.shared.migrateExistingImages(messages: allMessages)
+            let migratedCount = allMessages.filter { $0.type == .textWithImage || $0.type == .image }.count
+            print("📱 CharacterChatService - Successfully migrated \(migratedCount) images")
+            return migratedCount
+        } catch {
+            print("❌ CharacterChatService - Error during image migration: \(error)")
+            throw ChatError.persistenceFailed
+        }
     }
     
     // MARK: - Private Methods

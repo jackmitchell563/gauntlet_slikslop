@@ -11,167 +11,76 @@ class ChatBubbleCell: UICollectionViewCell {
     
     // MARK: - UI Components
     
-    private lazy var avatarContainer: UIView = {
-        let view = UIView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-    
-    private lazy var contentContainer: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 8
-        stack.alignment = .fill
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        return stack
-    }()
-    
-    private lazy var bubbleView: UIView = {
+    private let bubbleView: UIView = {
         let view = UIView()
         view.layer.cornerRadius = 16
-        view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
     
-    private lazy var messageLabel: UILabel = {
+    private let messageLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 16)
         label.numberOfLines = 0
+        label.font = .systemFont(ofSize: 16)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
     
-    private lazy var imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.layer.cornerRadius = 16
-        iv.isHidden = true
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
+    private let avatarImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 20
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
     }()
-    
-    private lazy var avatarImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.layer.cornerRadius = 24
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
-    
-    private lazy var timestampLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 9)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-    
-    private var avatarConstraints: [NSLayoutConstraint] = []
-    private var contentConstraints: [NSLayoutConstraint] = []
     
     // MARK: - Initialization
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupUI()
+        setupViews()
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    // MARK: - Setup
-    
-    private func setupUI() {
-        // Add avatar container and its subviews
-        contentView.addSubview(avatarContainer)
-        avatarContainer.addSubview(avatarImageView)
-        avatarContainer.addSubview(timestampLabel)
-        
-        // Add content container and its subviews
-        contentView.addSubview(contentContainer)
-        contentContainer.addArrangedSubview(bubbleView)
+    private func setupViews() {
+        contentView.addSubview(avatarImageView)
+        contentView.addSubview(bubbleView)
         bubbleView.addSubview(messageLabel)
-        contentContainer.addArrangedSubview(imageView)
         
-        // Setup avatar container constraints
         NSLayoutConstraint.activate([
-            avatarContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
-            avatarContainer.widthAnchor.constraint(equalToConstant: 48),
+            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            avatarImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 40),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 40),
             
-            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-            avatarImageView.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 48),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 48),
-            
-            timestampLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 4),
-            timestampLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-            timestampLabel.widthAnchor.constraint(equalTo: avatarContainer.widthAnchor),
-            timestampLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            bubbleView.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
+            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
             
             messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 8),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8),
-            
-            imageView.heightAnchor.constraint(equalToConstant: 200)
+            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8)
         ])
-    }
-    
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        
-        // Remove existing constraints
-        NSLayoutConstraint.deactivate(avatarConstraints)
-        NSLayoutConstraint.deactivate(contentConstraints)
-        avatarConstraints.removeAll()
-        contentConstraints.removeAll()
-        
-        // Reset images and text
-        avatarImageView.image = nil
-        imageView.image = nil
-        timestampLabel.text = nil
-        messageLabel.text = nil
-        imageView.isHidden = true
-        
-        // Remove loading states
-        loadingSpinner?.removeFromSuperview()
-        loadingSpinner = nil
-        errorIcon?.removeFromSuperview()
-        errorIcon = nil
     }
     
     // MARK: - Configuration
     
     func configure(with message: ChatMessage, profileImageURL: String? = nil) {
-        let timestamp = DateFormatter.messageTimestamp.string(from: message.timestamp)
-        avatarContainer.isHidden = false
-        timestampLabel.text = timestamp
+        // Set text
+        messageLabel.text = message.text
         
-        // Remove any existing constraints
-        NSLayoutConstraint.deactivate(avatarConstraints)
-        NSLayoutConstraint.deactivate(contentConstraints)
-        avatarConstraints.removeAll()
-        contentConstraints.removeAll()
-        
+        // Style based on sender
         if message.sender == .user {
-            // User message styling - right aligned
-            avatarConstraints = [
-                avatarContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
-            ]
+            bubbleView.backgroundColor = .systemBlue
+            messageLabel.textColor = .white
             
-            contentConstraints = [
-                contentContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
-                contentContainer.trailingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -12),
-                contentContainer.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
-                contentContainer.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-            ]
-            
-            // Set user avatar
+            // Load user avatar
             if let currentUser = FirebaseConfig.getAuthInstance().currentUser,
                let photoURL = currentUser.photoURL {
                 Task {
@@ -188,25 +97,11 @@ class ChatBubbleCell: UICollectionViewCell {
             } else {
                 avatarImageView.image = UIImage(systemName: "person.circle.fill")
             }
-            
-            // Style bubble
-            bubbleView.backgroundColor = .systemBlue
-            messageLabel.textColor = .white
-            
         } else {
-            // AI message styling - left aligned
-            avatarConstraints = [
-                avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-            ]
+            bubbleView.backgroundColor = .secondarySystemBackground
+            messageLabel.textColor = .label
             
-            contentConstraints = [
-                contentContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
-                contentContainer.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 12),
-                contentContainer.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.75),
-                contentContainer.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
-            ]
-            
-            // Load AI profile image
+            // Load character avatar
             if let profileURLString = profileImageURL,
                let profileURL = URL(string: profileURLString) {
                 Task {
@@ -223,200 +118,61 @@ class ChatBubbleCell: UICollectionViewCell {
             } else {
                 avatarImageView.image = UIImage(systemName: "person.circle.fill")
             }
-            
-            // Style bubble
-            bubbleView.backgroundColor = .secondarySystemBackground
-            messageLabel.textColor = .label
         }
-        
-        // Activate constraints
-        NSLayoutConstraint.activate(avatarConstraints)
-        NSLayoutConstraint.activate(contentConstraints)
-        
-        // Configure message content
-        messageLabel.text = message.text
-        
-        // Handle image if present
-        if message.type == .textWithImage {
-            imageView.isHidden = false
-            
-            if let status = message.imageGenerationStatus {
-                switch status {
-                case .queued:
-                    showLoadingState(message: "Queued...")
-                case .generating:
-                    showLoadingState(message: "Generating...")
-                case .completed:
-                    if let image = message.ephemeralImage {
-                        imageView.image = image
-                        loadingSpinner?.removeFromSuperview()
-                        loadingSpinner = nil
-                    } else {
-                        // Try to load from local storage
-                        do {
-                            if let storedImage = try StableDiffusionService.shared.loadImageFromStorage(messageId: message.id) {
-                                imageView.image = storedImage
-                                loadingSpinner?.removeFromSuperview()
-                                loadingSpinner = nil
-                            } else {
-                                showErrorState()
-                            }
-                        } catch {
-                            print("❌ ChatBubbleCell - Error loading stored image: \(error)")
-                            showErrorState()
-                        }
-                    }
-                case .failed:
-                    showErrorState()
-                }
-            }
-        } else {
-            imageView.isHidden = true
-        }
-    }
-    
-    // MARK: - Helper Methods
-    
-    private func showLoadingState(message: String) {
-        loadingSpinner?.removeFromSuperview()
-        
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.startAnimating()
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        imageView.addSubview(spinner)
-        
-        NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor)
-        ])
-        
-        loadingSpinner = spinner
-    }
-    
-    private func showErrorState() {
-        loadingSpinner?.removeFromSuperview()
-        loadingSpinner = nil
-        
-        let errorImage = UIImage(systemName: "exclamationmark.triangle.fill")
-        let imageView = UIImageView(image: errorImage)
-        imageView.tintColor = .systemRed
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        self.imageView.addSubview(imageView)
-        
-        NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: self.imageView.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: self.imageView.centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 32),
-            imageView.heightAnchor.constraint(equalToConstant: 32)
-        ])
-        
-        errorIcon = imageView
     }
     
     // MARK: - Size Calculation
     
     static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
-        let messageInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        let availableWidth = width - messageInsets.left - messageInsets.right
+        // Fixed margins and spacing
+        let avatarWidth: CGFloat = 40
+        let horizontalMargins: CGFloat = 36 // 8 + 8 + 12 + 8
+        let verticalMargins: CGFloat = 32 // 8 + 8 + 8 + 8
         
-        let textSize = NSString(string: message.text).boundingRect(
-            with: CGSize(width: availableWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: UIFont.systemFont(ofSize: 16)],
-            context: nil
-        ).size
+        // Available width for text
+        let maxTextWidth = width - avatarWidth - horizontalMargins
         
-        var height = ceil(textSize.height) + messageInsets.top + messageInsets.bottom
+        // Create layout manager to calculate lines
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude))
+        let textStorage = NSTextStorage(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: 16)])
         
-        // Add height for image if needed
-        if message.type == .textWithImage {
-            height += 208  // 200 for image + 8 for spacing
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        
+        // Make sure the layout manager lays out the text
+        layoutManager.ensureLayout(for: textContainer)
+        
+        // Calculate number of lines and total height
+        var lineCount = 0
+        var lastLineIndex = 0
+        
+        while layoutManager.lineFragmentRect(forGlyphAt: lastLineIndex, effectiveRange: nil, withoutAdditionalLayout: true).maxY > 0 {
+            lineCount += 1
+            lastLineIndex = layoutManager.glyphIndexForCharacter(at: lastLineIndex + 1)
+            if lastLineIndex >= layoutManager.numberOfGlyphs {
+                break
+            }
         }
         
-        // Add height for timestamp
-        height += 24  // Avatar height (48) + timestamp spacing (4) = 72 total for avatar container
+        print("📱 ChatBubbleCell - Text: \(message.text)")
+        print("📱 ChatBubbleCell - Number of lines: \(lineCount)")
         
-        return CGSize(width: ceil(textSize.width) + messageInsets.left + messageInsets.right, height: height)
+        let textRect = layoutManager.usedRect(for: textContainer)
+        let height = ceil(textRect.height) + verticalMargins
+        
+        return CGSize(width: width, height: max(height, 56)) // Minimum height of 56
     }
 }
 
-/// Custom view for chat message bubbles
-class ChatBubbleView: UIView {
-    // MARK: - Properties
-    
-    private var message: ChatMessage?
-    
-    // MARK: - UI Components
-    
-    private lazy var bubbleBackgroundView: UIView = {
-        let view = UIView()
-        view.layer.cornerRadius = 16
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-    
-    private lazy var messageLabel: UILabel = {
-        let label = UILabel()
-        label.numberOfLines = 0
-        label.font = .systemFont(ofSize: 16)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-    
-    // MARK: - Initialization
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupUI()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    // MARK: - Setup
-    
-    private func setupUI() {
-        addSubview(bubbleBackgroundView)
-        bubbleBackgroundView.addSubview(messageLabel)
-        
-        NSLayoutConstraint.activate([
-            bubbleBackgroundView.topAnchor.constraint(equalTo: topAnchor),
-            bubbleBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            bubbleBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bubbleBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            
-            messageLabel.topAnchor.constraint(equalTo: bubbleBackgroundView.topAnchor, constant: 8),
-            messageLabel.leadingAnchor.constraint(equalTo: bubbleBackgroundView.leadingAnchor, constant: 12),
-            messageLabel.trailingAnchor.constraint(equalTo: bubbleBackgroundView.trailingAnchor, constant: -12),
-            messageLabel.bottomAnchor.constraint(equalTo: bubbleBackgroundView.bottomAnchor, constant: -8)
-        ])
-    }
-    
-    // MARK: - Configuration
-    
-    func configure(with message: ChatMessage, isUser: Bool) {
-        self.message = message
-        messageLabel.text = message.text
-        bubbleBackgroundView.backgroundColor = isUser ? .systemBlue : .secondarySystemBackground
-        messageLabel.textColor = isUser ? .white : .label
-    }
-    
-    // MARK: - Size Calculation
-    
-    static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
-        let messageInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        let availableWidth = width - messageInsets.left - messageInsets.right
-        
-        let textSize = NSString(string: message.text).boundingRect(
-            with: CGSize(width: availableWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: UIFont.systemFont(ofSize: 16)],
-            context: nil
-        ).size
-        
-        let height = ceil(textSize.height) + messageInsets.top + messageInsets.bottom
-        return CGSize(width: ceil(textSize.width) + messageInsets.left + messageInsets.right, height: height)
+// MARK: - Layout Configuration
+
+extension NSAttributedString {
+    struct LayoutConfig {
+        let font: UIFont
+        let paragraphStyle: NSParagraphStyle
+        let messagePadding: UIEdgeInsets
+        var maxWidth: CGFloat?
     }
 }
 
