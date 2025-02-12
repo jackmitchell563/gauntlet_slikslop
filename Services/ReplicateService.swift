@@ -153,24 +153,22 @@ class ReplicateService {
         
         // Create a simple character-based prompt
         let characterPrompt = """
-            (((masterpiece, best quality, ultra-detailed, illustration))), \
-            isometric, 1girl, 1woman, solo, mature female, mid shot, upper body, <lora:genshinfull1:1>, looking at viewer, \
-            \(character.name) from \(character.game), \
+            (((masterpiece, best quality, ultra-detailed, illustration))), isometric, circle, golden ratio, 1girl, solo, mature female, mid shot, upper body, <lora:genshinfull1:1>, looking at viewer,
+            \(character.name), \(character.game), \
             \(character.personalityProfile), \
-            perfect lighting, magic circle, magic spell, VFX, effect, particles, light particles, glowing effect, wind effect around body, \
-            \(prompt)
+            perfect lighting, elemental spell, VFX, gold effect, gold particles, glowing effect, wind effect around body, gold petals, (wallpaper4k:2), 
             """
         
         // Create request body with all required parameters
         var input: [String: Any] = [
-            "width": 512,
-            "height": 512,
+            "width": character.id == "warmup_test" ? 64 : 1144,
+            "height": character.id == "warmup_test" ? 64 : 640,
             "prompt": characterPrompt,
             "scheduler": "K_EULER",
             "num_outputs": 1,
-            "guidance_scale": 7.5,
-            "negative_prompt": "FastNegativeV2, EasyNegative, BadDream, paintings, sketches, hands, contortionist, amputee, polydactyly, deformed, distorted, misshapen, malformed, abnormal, mutant, defaced, shapeless, (negative_hand:1.0), bad hands, fingers, (worst quality:2), (low quality:2), 2girls, bad artist, text, error, bad_prompt, (low quality, worst quality:1.4),(monochrome:1.1), (wood, stone:1.5), loli, child, bad-artist, badhandv4, easynegative, worst pose, more leg, poorly leg, mutated nipple, missing nipple, deformed pose, 4leg, (deformed:1.8),(malformed hands:1.4),(poorly drawn hands:1.4),(mutated fingers:1.4),(bad anatomy:1.5), (extra hand: 1.4, extra leg:1.9), (extra limbs:1.35),(poorly drawn face:1.4),(signature:1.2),(artist name:1.2),(watermark:1.2), missing eye, ((long body part)), weird pose, (mutated body), out of frame head, blur object, blur, mutated eyes, malformed fingers, mutated fingers, combined fingers,",
-            "num_inference_steps": 24
+            "guidance_scale": 7.27,
+            "negative_prompt": "FastNegativeV2, EasyNegative, BadDream, paintings, sketches, (hands:2), text, 2girls, 2women, contortionist, amputee, polydactyly, deformed, distorted, misshapen, malformed, abnormal, mutant, defaced, shapeless, (negative_hand:1.0), bad hands, fingers, (worst quality:2), (low quality:2), 2girls, bad artist, text, error, bad_prompt, (low quality, worst quality:1.4),(monochrome:1.1), loli, child, bad-artist, badhandv4, easynegative, worst pose, more leg, poorly leg, mutated nipple, missing nipple, armpit, armpit detail, deformed pose, 4leg, (deformed:1.8),(malformed hands:1.4),(poorly drawn hands:1.4),(mutated fingers:1.4),(bad anatomy:1.5), (extra hand: 1.4, extra leg:1.9), (extra limbs:1.35),(poorly drawn face:1.4),(signature:1.2),(artist name:1.2),(watermark:1.2), missing eye, ((long body part)), weird pose, broken wrist, long fingers, (mutated body), out of frame head, blur object, blur, mutated eyes, malformed fingers, mutated fingers, combined fingers, three hands, four hands,",
+            "num_inference_steps": character.id == "warmup_test" ? 1 : 24
         ]
         
         // Only add character field if it's in the predefined list

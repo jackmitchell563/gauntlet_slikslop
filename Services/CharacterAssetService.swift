@@ -42,8 +42,13 @@ class CharacterAssetService {
     private let bannerCache = NSCache<NSString, UIImage>()
     private let profileCache = NSCache<NSString, UIImage>()
     
+    private let stableDiffusion = StableDiffusionService.shared
+    private var warmupTimer: Timer?
+    
     private init() {
         setupCache()
+        setupWarmupTimer()
+        print("Requested Replicate warmup")
     }
     
     // MARK: - Setup
@@ -60,6 +65,48 @@ class CharacterAssetService {
         )
         
         print("📱 CharacterAssetService - Cache initialized with \(imageCache.countLimit) item limit and \(imageCache.totalCostLimit / 1024 / 1024)MB total limit")
+    }
+    
+    private func setupWarmupTimer() {
+        // Start immediately
+        performWarmupRequest()
+        
+        // Then schedule every 2 minutes
+        warmupTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            self?.performWarmupRequest()
+        }
+    }
+    
+    private func performWarmupRequest() {
+        // Create a minimal test character just for warmup
+        let warmupCharacter = GameCharacter(
+            id: "warmup_test",
+            name: "Warmup Test",
+            game: .genshinImpact,
+            backgroundStory: "",
+            bannerImageURL: "",
+            profileImageURL: "",
+            personalityProfile: "",
+            speakingStyle: "",
+            createdAt: Date(),
+            recognitionTags: [],
+            traits: [],
+            relationships: []
+        )
+        
+        Task {
+            do {
+                print("📱 CharacterAssetService - Performing model warmup request")
+                try await stableDiffusion.generateImage(
+                    positivePrompt: "(masterpiece, best quality), 1girl, simple background",
+                    negativePrompt: "",
+                    character: warmupCharacter
+                )
+                print("📱 CharacterAssetService - Warmup request successful")
+            } catch {
+                print("❌ CharacterAssetService - Warmup request failed: \(error)")
+            }
+        }
     }
     
     // MARK: - Thread-Safe State Access
@@ -566,6 +613,7 @@ class CharacterAssetService {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        warmupTimer?.invalidate()
     }
 }
 
