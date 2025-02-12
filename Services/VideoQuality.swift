@@ -28,8 +28,8 @@ enum VideoQuality: String, Codable, CaseIterable {
         }
     }
     
-    /// Raw value for comparison (higher is better quality)
-    var rawValue: Int {
+    /// Numeric value representing quality level (higher is better quality)
+    var qualityLevel: Int {
         switch self {
         case .auto:
             return 0
