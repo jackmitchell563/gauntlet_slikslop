@@ -2,12 +2,9 @@
 .cursorrules
 .env*
 *.md
-<<<<<<< HEAD
 !docs/components/*
 *.plist
 .DS_Store
 **/.DS_Store
 index.js
-=======
-!docs/components/*
->>>>>>> 5d773ce (first commit)
+Resources/CoreMLModel/
