@@ -178,6 +178,13 @@ class ChatViewController: UIViewController {
             name: NSNotification.Name("GalleryImageDeleted"),
             object: nil
         )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGalleryImageAdded(_:)),
+            name: NSNotification.Name("GalleryImageAdded"),
+            object: nil
+        )
     }
     
     // MARK: - Asset Management
@@ -407,6 +414,14 @@ class ChatViewController: UIViewController {
     }
     
     @objc private func handleGalleryImageDeleted(_ notification: Notification) {
+        guard let notificationCharacter = notification.userInfo?["character"] as? GameCharacter,
+              notificationCharacter.id == character.id else {
+            return
+        }
+        updateGalleryCount()
+    }
+    
+    @objc private func handleGalleryImageAdded(_ notification: Notification) {
         guard let notificationCharacter = notification.userInfo?["character"] as? GameCharacter,
               notificationCharacter.id == character.id else {
             return
