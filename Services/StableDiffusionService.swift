@@ -79,13 +79,6 @@ class StableDiffusionService {
             let image = try await replicate.generateImage(prompt: positivePrompt, character: character)
             print("📱 StableDiffusionService - Image generated successfully")
             
-            // Notify that a new image has been added to the gallery
-            NotificationCenter.default.post(
-                name: NSNotification.Name("GalleryImageAdded"),
-                object: nil,
-                userInfo: ["character": character]
-            )
-            
             return image
             
         } catch let error as ReplicateService.ReplicateError {

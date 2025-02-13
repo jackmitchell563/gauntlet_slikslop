@@ -165,6 +165,13 @@ class CharacterChatService {
                     responseMessage.imageGenerationStatus = .completed
                     try await saveChatMessage(responseMessage, characterId: character.id)
                     
+                    // Notify that a new image has been added to the gallery
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("GalleryImageAdded"),
+                        object: nil,
+                        userInfo: ["character": character]
+                    )
+                    
                     // Update cache
                     if var cachedMessages = messageCache[chatId],
                        let index = cachedMessages.firstIndex(where: { $0.id == responseMessage.id }) {
