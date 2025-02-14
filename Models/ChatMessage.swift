@@ -7,6 +7,8 @@ struct ChatMessage: Identifiable {
     let id: String
     /// Message content
     let text: String
+    /// Japanese translation of the message (for character responses)
+    let japaneseContent: String?
     /// Who sent the message
     let sender: MessageSender
     /// When the message was sent
@@ -27,9 +29,15 @@ struct ChatMessage: Identifiable {
     /// Temporary in-memory image that will be cleared when the chat is closed
     var ephemeralImage: UIImage?
     
+    // MARK: - Audio Support
+    
+    /// Whether this message has an audio clip available
+    var audioAvailable: Bool
+    
     init(
         id: String = UUID().uuidString,
         text: String,
+        japaneseContent: String? = nil,
         sender: MessageSender,
         timestamp: Date = .now,
         sequence: Int,
@@ -37,10 +45,12 @@ struct ChatMessage: Identifiable {
         type: MessageType = .text,
         imageURL: URL? = nil,
         imageGenerationStatus: ImageGenerationStatus? = nil,
-        ephemeralImage: UIImage? = nil
+        ephemeralImage: UIImage? = nil,
+        audioAvailable: Bool = false
     ) {
         self.id = id
         self.text = text
+        self.japaneseContent = japaneseContent
         self.sender = sender
         self.timestamp = timestamp
         self.sequence = sequence
@@ -49,6 +59,7 @@ struct ChatMessage: Identifiable {
         self.imageURL = imageURL
         self.imageGenerationStatus = imageGenerationStatus
         self.ephemeralImage = ephemeralImage
+        self.audioAvailable = audioAvailable
     }
 }
 

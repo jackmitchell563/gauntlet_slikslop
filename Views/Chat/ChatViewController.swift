@@ -19,6 +19,10 @@ class ChatViewController: UIViewController {
         }
     }
     
+    // Pagination state
+    private var isLoadingMoreMessages = false
+    private var canLoadMoreMessages = true
+    
     // MARK: - UI Components
     
     private lazy var bannerView: CharacterBannerView = {
@@ -64,6 +68,13 @@ class ChatViewController: UIViewController {
         view.isHidden = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
+    }()
+    
+    private lazy var loadingIndicatorView: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.hidesWhenStopped = true
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        return indicator
     }()
     
     private var bottomConstraint: NSLayoutConstraint?
@@ -123,6 +134,7 @@ class ChatViewController: UIViewController {
         view.addSubview(imageOverlayView)  // Add overlay view
         view.addSubview(typingIndicator)
         view.addSubview(chatInputView)
+        collectionView.addSubview(loadingIndicatorView)  // Add loading indicator
         
         let bottomConstraint = chatInputView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         self.bottomConstraint = bottomConstraint
@@ -151,7 +163,12 @@ class ChatViewController: UIViewController {
             
             chatInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             chatInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomConstraint
+            bottomConstraint,
+            
+            // Add loading indicator constraints
+            loadingIndicatorView.topAnchor.constraint(equalTo: collectionView.topAnchor, constant: 8),
+            loadingIndicatorView.centerXAnchor.constraint(equalTo: collectionView.centerXAnchor),
+            loadingIndicatorView.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
     
@@ -267,10 +284,83 @@ class ChatViewController: UIViewController {
                     messages = history
                     collectionView.reloadData()
                     scrollToBottom()
+                    
+                    // Enable scroll tracking after initial load
+                    collectionView.delegate = self
                 }
             } catch {
                 print("❌ ChatViewController - Error loading chat history: \(error)")
                 handleError(error)
+            }
+        }
+    }
+    
+    private func loadMoreMessages() {
+        guard !isLoadingMoreMessages && canLoadMoreMessages,
+              let oldestMessage = messages.first else {
+            return
+        }
+        
+        isLoadingMoreMessages = true
+        loadingIndicatorView.startAnimating()
+        
+        Task {
+            do {
+                let olderMessages = try await chatService.loadChatHistory(
+                    for: character,
+                    beforeSequence: oldestMessage.sequence
+                )
+                
+                await MainActor.run {
+                    if olderMessages.isEmpty {
+                        canLoadMoreMessages = false
+                    } else {
+                        // Get the current content offset and the first visible cell
+                        let currentOffset = collectionView.contentOffset.y
+                        let firstVisibleIndexPath = collectionView.indexPathsForVisibleItems.min { $0.item < $1.item }
+                        
+                        // Insert messages at the beginning
+                        messages.insert(contentsOf: olderMessages, at: 0)
+                        
+                        // Perform updates without animation to prevent scrolling
+                        UIView.performWithoutAnimation {
+                            // Use performBatchUpdates to maintain scroll position
+                            collectionView.performBatchUpdates({
+                                // Create index paths for the new items
+                                let indexPaths = (0..<olderMessages.count).map { 
+                                    IndexPath(item: $0, section: 0)
+                                }
+                                collectionView.insertItems(at: indexPaths)
+                            }, completion: { _ in
+                                // After the update, adjust scroll position if needed
+                                if let firstVisibleIndexPath = firstVisibleIndexPath {
+                                    // Calculate new offset based on content size change
+                                    let newIndexPath = IndexPath(
+                                        item: firstVisibleIndexPath.item + olderMessages.count,
+                                        section: 0
+                                    )
+                                    
+                                    // Scroll to maintain position of previously first visible item
+                                    self.collectionView.scrollToItem(
+                                        at: newIndexPath,
+                                        at: .top,
+                                        animated: false
+                                    )
+                                }
+                            })
+                        }
+                    }
+                    
+                    isLoadingMoreMessages = false
+                    loadingIndicatorView.stopAnimating()
+                }
+            } catch {
+                print("❌ ChatViewController - Error loading more messages: \(error)")
+                await MainActor.run {
+                    isLoadingMoreMessages = false
+                    loadingIndicatorView.stopAnimating()
+                    handleError(error)
+                }
             }
         }
     }
@@ -503,5 +593,16 @@ extension ChatViewController: CharacterBannerViewDelegate {
         let galleryVC = CharacterGalleryViewController(character: character)
         let nav = UINavigationController(rootViewController: galleryVC)
         present(nav, animated: true)
+    }
+}
+
+// MARK: - UIScrollViewDelegate
+
+extension ChatViewController: UIScrollViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Check if we're near the top
+        if scrollView.contentOffset.y <= 0 {
+            loadMoreMessages()
+        }
     }
 } 

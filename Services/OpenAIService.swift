@@ -11,6 +11,9 @@ enum OpenAIError: LocalizedError {
     case invalidResponseFormat(String)  // Error case for Zod validation failures
     case parseError(String)            // Error case for parsing issues
     case invalidTagResponse
+    case invalidFunctionCall
+    case missingAPIKey
+    case invalidArgumentFormat
     
     var errorDescription: String? {
         switch self {
@@ -32,6 +35,12 @@ enum OpenAIError: LocalizedError {
             return "Failed to parse response: \(details)"
         case .invalidTagResponse:
             return "Invalid tag generation response"
+        case .invalidFunctionCall:
+            return "Invalid function call in response"
+        case .missingAPIKey:
+            return "Missing API key"
+        case .invalidArgumentFormat:
+            return "Invalid argument format"
         }
     }
 }
@@ -45,12 +54,18 @@ class OpenAIService {
     
     private let lambdaEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate"
     private let tagGenerationEndpoint = "https://gooi6zviqf.execute-api.us-east-2.amazonaws.com/prod/generate"
+    private let openAIEndpoint = "https://api.openai.com/v1/chat/completions"
+    
+    private var apiKey: String? {
+        ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
+    }
     
     // MARK: - Types
     
     /// Response structure for relationship-enabled chat
     struct AIResponse: Codable {
         let content: String
+        let japaneseContent: String
         let relationship_value_change: Int
     }
     
@@ -58,6 +73,83 @@ class OpenAIService {
     struct TagResponse: Codable {
         let positive_prompt: String
         let negative_prompt: String
+    }
+    
+    struct FunctionDefinition: Codable {
+        let name: String
+        let description: String
+        let parameters: Parameters
+        
+        struct Parameters: Codable {
+            let type: String
+            let properties: [String: Property]
+            let required: [String]
+        }
+        
+        struct Property: Codable {
+            let type: String
+            let description: String
+        }
+    }
+
+    struct CharacterResponseFunction {
+        static let definition = FunctionDefinition(
+            name: "generate_character_response",
+            description: "Generate a character's response with relationship changes",
+            parameters: .init(
+                type: "object",
+                properties: [
+                    "content": .init(
+                        type: "string",
+                        description: "The character's response message"
+                    ),
+                    "japaneseContent": .init(
+                        type: "string",
+                        description: "Natural Japanese translation of the response"
+                    ),
+                    "relationship_value_change": .init(
+                        type: "integer",
+                        description: "How much the user's message affects feelings (-500 to 200)"
+                    )
+                ],
+                required: ["content", "japaneseContent", "relationship_value_change"]
+            )
+        )
+    }
+
+    struct OpenAIRequest: Codable {
+        let model: String
+        let messages: [Message]
+        let functions: [FunctionDefinition]
+        let function_call: FunctionCall
+        let temperature: Double
+        let max_tokens: Int
+        
+        struct Message: Codable {
+            let role: String
+            let content: String
+        }
+        
+        struct FunctionCall: Codable {
+            let name: String
+        }
+    }
+
+    struct OpenAIResponse: Codable {
+        let choices: [Choice]
+        
+        struct Choice: Codable {
+            let message: Message
+            
+            struct Message: Codable {
+                let function_call: FunctionCall
+                
+                struct FunctionCall: Codable {
+                    let name: String
+                    let arguments: String
+                }
+            }
+        }
     }
     
     // MARK: - Initialization
@@ -71,13 +163,18 @@ class OpenAIService {
     ///   - messages: Array of previous chat messages
     ///   - character: The character generating the response
     ///   - relationshipStatus: Current relationship status (-1000 to 1000)
-    /// - Returns: Tuple containing response text and relationship value change
+    /// - Returns: Tuple containing response text, Japanese translation, and relationship value change
     func generateResponse(
         messages: [ChatMessage],
         character: GameCharacter,
         relationshipStatus: Int = 0
-    ) async throws -> (content: String, relationshipChange: Int) {
+    ) async throws -> (content: String, japaneseContent: String, relationshipChange: Int) {
         print("📱 OpenAIService - Generating response for character: \(character.name)")
+        
+        guard let apiKey = apiKey else {
+            print("❌ OpenAIService - Missing API key")
+            throw OpenAIError.missingAPIKey
+        }
         
         // Prepare system prompt
         let systemPrompt = """
@@ -101,7 +198,15 @@ class OpenAIService {
             First, determine how the user's message affects your feelings (relationship_value_change).
             Second, calculate the new relationship status by adding relationship_value_change to the current status.
             Finally, respond in character with a tone matching the NEW relationship status after the change.
-
+            
+            **IMPORTANT - TRANSLATION REQUIREMENT:**
+            After crafting your response in English, you must provide a natural Japanese translation that:
+            1. Maintains the emotional tone and nuance of your English response
+            2. Uses appropriate Japanese speech patterns for your character (casual/formal/etc.)
+            3. Includes appropriate Japanese particles and expressions
+            4. Preserves any character-specific speech patterns
+            5. Uses natural Japanese word order and grammar
+            
             The relationship_value_change should be between -500 and 200 and represents how much the user's message affects your feelings toward them:
             - Positive values (1 to 200): User's message improves the relationship
                 - Small positive (1-40): Basic politeness, showing interest, or minor positive interactions
@@ -137,49 +242,41 @@ class OpenAIService {
             """
         
         // Prepare messages for API
-        var apiMessages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
+        var apiMessages: [OpenAIRequest.Message] = [
+            .init(role: "system", content: systemPrompt)
         ]
         
         // Add conversation history
         messages.forEach { message in
             let role = message.sender == .user ? "user" : "assistant"
-            apiMessages.append([
-                "role": role,
-                "content": message.text
-            ])
+            apiMessages.append(.init(
+                role: role,
+                content: message.text
+            ))
         }
         
-        // Create request data
-        let requestData: [String: Any] = [
-            "messages": apiMessages,
-            "temperature": 0.7,
-            "maxTokens": 1500
-        ]
+        // Create request
+        let request = OpenAIRequest(
+            model: "gpt-4o-mini",
+            messages: apiMessages,
+            functions: [CharacterResponseFunction.definition],
+            function_call: .init(name: "generate_character_response"),
+            temperature: 0.7,
+            max_tokens: 1500
+        )
         
         // Create URL request
-        guard let url = URL(string: lambdaEndpoint) else {
-            throw OpenAIError.apiError("Invalid Lambda endpoint")
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Add auth token if user is logged in
-        if AuthService.shared.isAuthenticated,
-           let idToken = try? await FirebaseConfig.getAuthInstance().currentUser?.getIDToken() {
-            request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
-        }
-        
-        // Encode request data
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestData)
+        var urlRequest = URLRequest(url: URL(string: openAIEndpoint)!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(request)
         
         // Log request details
-        logRequest(request)
+        logRequest(urlRequest)
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: urlRequest)
             
             // Check HTTP status
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -187,53 +284,28 @@ class OpenAIService {
                 throw OpenAIError.invalidResponse
             }
             
-            // Log response status and headers
+            // Log response status
             print("📱 OpenAIService - Response status: \(httpResponse.statusCode)")
-            
-            // If error, try to parse response body for more details
-            if httpResponse.statusCode != 200 {
-                let responseString = String(data: data, encoding: .utf8) ?? "No response body"
-                print("❌ OpenAIService - Error response: \(responseString)")
-                
-                // Enhanced error handling for Zod validation errors
-                if httpResponse.statusCode == 400 {
-                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorMessage = errorData["error"] as? String,
-                       errorMessage.contains("Invalid response format") {
-                        throw OpenAIError.invalidResponseFormat(errorMessage)
-                    }
-                }
-            }
             
             switch httpResponse.statusCode {
             case 200:
-                // Log the raw response for debugging
-                let rawResponse = String(data: data, encoding: .utf8) ?? "Unable to decode response as string"
-                print("📱 OpenAIService - Raw AI response before decoding: \(rawResponse)")
-                
-                // Add debug logging for response structure
-                if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📱 OpenAIService - Response structure:")
-                    print("  - content type: \(type(of: jsonObject["content"] ?? "nil"))")
-                    print("  - relationship_value_change type: \(type(of: jsonObject["relationship_value_change"] ?? "nil"))")
+                let openAIResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+                guard let functionCall = openAIResponse.choices.first?.message.function_call,
+                      functionCall.name == "generate_character_response" else {
+                    print("❌ OpenAIService - Invalid function call in response")
+                    throw OpenAIError.invalidFunctionCall
                 }
                 
-                do {
-                    // Attempt to decode the response
-                    let aiResponse = try JSONDecoder().decode(AIResponse.self, from: data)
-                    print("📱 OpenAIService - Successfully decoded response")
-                    
-                    // Clamp relationship value to valid range instead of throwing error
-                    let clampedValue = min(max(aiResponse.relationship_value_change, -500), 200)
-                    if clampedValue != aiResponse.relationship_value_change {
-                        print("📱 OpenAIService - Clamped relationship value from \(aiResponse.relationship_value_change) to \(clampedValue)")
-                    }
-                    
-                    return (aiResponse.content, clampedValue)
-                } catch {
-                    print("❌ OpenAIService - Parsing error: \(error)")
-                    throw OpenAIError.parseError(error.localizedDescription)
+                let aiResponse = try JSONDecoder().decode(AIResponse.self, 
+                                                        from: functionCall.arguments.data(using: .utf8)!)
+                
+                // Clamp relationship value
+                let clampedValue = min(max(aiResponse.relationship_value_change, -500), 200)
+                if clampedValue != aiResponse.relationship_value_change {
+                    print("📱 OpenAIService - Clamped relationship value from \(aiResponse.relationship_value_change) to \(clampedValue)")
                 }
+                
+                return (aiResponse.content, aiResponse.japaneseContent, clampedValue)
                 
             case 401:
                 throw OpenAIError.unauthorized
@@ -244,7 +316,7 @@ class OpenAIService {
                    let errorMessage = errorData["error"] as? String {
                     throw OpenAIError.apiError(errorMessage)
                 }
-                throw OpenAIError.apiError("Unknown error occurred")
+                throw OpenAIError.apiError("HTTP \(httpResponse.statusCode)")
             }
         } catch let error as OpenAIError {
             throw error

@@ -18,6 +18,8 @@ class StableDiffusionService {
         case storageError(String)
         case imageGenerationFailed(String)
         case modelDirectoryCreationFailed
+        case audioStorageError(String)
+        case audioMigrationFailed(String)
         
         var errorDescription: String? {
             switch self {
@@ -27,6 +29,10 @@ class StableDiffusionService {
                 return "Image generation failed: \(message)"
             case .modelDirectoryCreationFailed:
                 return "Failed to create storage directory"
+            case .audioStorageError(let message):
+                return "Audio storage error: \(message)"
+            case .audioMigrationFailed(let message):
+                return "Audio migration failed: \(message)"
             }
         }
     }
@@ -203,5 +209,159 @@ class StableDiffusionService {
                 continue
             }
         }
+    }
+    
+    // MARK: - Audio Storage
+    
+    /// Gets the URL for the local audio storage directory
+    /// - Parameter character: Optional character to get specific directory for
+    /// - Returns: URL of the audio storage directory
+    /// - Throws: StableDiffusionError if directory creation fails
+    func getAudioStorageURL(for character: GameCharacter? = nil) throws -> URL {
+        print("📱 StableDiffusionService - Getting audio storage URL for character: \(character?.name ?? "general")")
+        
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("❌ StableDiffusionService - Failed to access documents directory")
+            throw StableDiffusionError.modelDirectoryCreationFailed
+        }
+        
+        var audioDirectory = documentsDirectory.appendingPathComponent("GeneratedAudio", isDirectory: true)
+        
+        if let character = character {
+            audioDirectory = audioDirectory.appendingPathComponent(character.id, isDirectory: true)
+        }
+        
+        // Create directory if it doesn't exist
+        if !FileManager.default.fileExists(atPath: audioDirectory.path) {
+            do {
+                try FileManager.default.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+                print("📱 StableDiffusionService - Created audio directory: \(audioDirectory.path)")
+            } catch {
+                print("❌ StableDiffusionService - Failed to create audio directory: \(error)")
+                throw StableDiffusionError.modelDirectoryCreationFailed
+            }
+        }
+        
+        return audioDirectory
+    }
+    
+    /// Gets all audio files for a specific character
+    /// - Parameter character: The character to get audio for
+    /// - Returns: Array of audio URLs
+    /// - Throws: StableDiffusionError if directory access fails
+    func getAudioFilesForCharacter(_ character: GameCharacter) throws -> [URL] {
+        print("📱 StableDiffusionService - Getting audio files for character: \(character.name)")
+        
+        let directory = try getAudioStorageURL(for: character)
+        let fileURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        let audioFiles = fileURLs.filter { $0.pathExtension == "mp3" }
+        print("📱 StableDiffusionService - Found \(audioFiles.count) audio files")
+        return audioFiles
+    }
+    
+    /// Migrates existing audio files to character-specific folders
+    /// - Parameter messages: Array of chat messages containing audio references
+    /// - Returns: Number of files migrated
+    /// - Throws: StableDiffusionError if migration fails
+    func migrateExistingAudio(messages: [ChatMessage]) throws -> Int {
+        print("📱 StableDiffusionService - Starting audio migration")
+        
+        let oldDirectory = try getAudioStorageURL()
+        let fileManager = FileManager.default
+        var migratedCount = 0
+        
+        for message in messages {
+            // Skip non-character messages
+            guard message.sender == .character,
+                  let character = message.character else {
+                continue
+            }
+            
+            let oldAudioURL = oldDirectory.appendingPathComponent("\(message.id).mp3")
+            let newAudioURL = try getAudioStorageURL(for: character)
+                .appendingPathComponent("\(message.id).mp3")
+            
+            // Skip if audio doesn't exist or is already migrated
+            guard fileManager.fileExists(atPath: oldAudioURL.path),
+                  !fileManager.fileExists(atPath: newAudioURL.path) else {
+                continue
+            }
+            
+            do {
+                try fileManager.moveItem(at: oldAudioURL, to: newAudioURL)
+                print("📱 StableDiffusionService - Migrated audio: \(message.id) to character folder: \(character.id)")
+                migratedCount += 1
+            } catch {
+                print("❌ StableDiffusionService - Failed to migrate audio: \(message.id): \(error)")
+                // Continue with other files even if one fails
+                continue
+            }
+        }
+        
+        print("📱 StableDiffusionService - Successfully migrated \(migratedCount) audio files")
+        return migratedCount
+    }
+    
+    /// Deletes an audio file
+    /// - Parameters:
+    ///   - messageId: The ID of the message associated with the audio
+    ///   - character: The character the audio belongs to
+    /// - Throws: StableDiffusionError if deletion fails
+    func deleteAudioFile(messageId: String, character: GameCharacter) throws {
+        print("📱 StableDiffusionService - Deleting audio for message: \(messageId)")
+        
+        let audioURL = try getAudioStorageURL(for: character)
+            .appendingPathComponent("\(messageId).mp3")
+        
+        if FileManager.default.fileExists(atPath: audioURL.path) {
+            do {
+                try FileManager.default.removeItem(at: audioURL)
+                print("📱 StableDiffusionService - Successfully deleted audio file")
+            } catch {
+                print("❌ StableDiffusionService - Failed to delete audio file: \(error)")
+                throw StableDiffusionError.storageError("Failed to delete audio file: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// Cleans up orphaned audio files
+    /// - Parameter messages: Current valid messages to check against
+    /// - Returns: Number of files cleaned up
+    /// - Throws: StableDiffusionError if cleanup fails
+    func cleanupOrphanedAudio(messages: [ChatMessage]) throws -> Int {
+        print("📱 StableDiffusionService - Starting orphaned audio cleanup")
+        
+        let validMessageIds = Set(messages.map { $0.id })
+        var cleanedCount = 0
+        
+        // Get all character folders
+        let baseDirectory = try getAudioStorageURL()
+        let characterFolders = try FileManager.default.contentsOfDirectory(
+            at: baseDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.hasDirectoryPath }
+        
+        // Check each character folder
+        for folder in characterFolders {
+            let audioFiles = try FileManager.default.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: nil
+            ).filter { $0.pathExtension == "mp3" }
+            
+            for audioFile in audioFiles {
+                let messageId = audioFile.deletingPathExtension().lastPathComponent
+                if !validMessageIds.contains(messageId) {
+                    try FileManager.default.removeItem(at: audioFile)
+                    cleanedCount += 1
+                    print("📱 StableDiffusionService - Cleaned up orphaned audio: \(messageId)")
+                }
+            }
+        }
+        
+        print("📱 StableDiffusionService - Cleaned up \(cleanedCount) orphaned audio files")
+        return cleanedCount
     }
 } 

@@ -9,6 +9,7 @@ class CharacterChatService {
     static let shared = CharacterChatService()
     
     private let openAI = OpenAIService.shared
+    private let fishAudio = FishAudioService.shared
     private let db = Firestore.firestore()
     
     // Message history cache
@@ -24,6 +25,7 @@ class CharacterChatService {
         case persistenceFailed
         case relationshipError
         case imageGenerationFailed
+        case audioGenerationFailed(String)
         
         var errorDescription: String? {
             switch self {
@@ -37,6 +39,8 @@ class CharacterChatService {
                 return "Failed to manage relationship status"
             case .imageGenerationFailed:
                 return "Failed to generate image"
+            case .audioGenerationFailed(let reason):
+                return "Failed to generate audio: \(reason)"
             }
         }
     }
@@ -93,7 +97,7 @@ class CharacterChatService {
         messages.append(userMessage)
         
         // Generate character response with relationship status
-        let (responseText, relationshipChange) = try await openAI.generateResponse(
+        let (responseText, japaneseContent, relationshipChange) = try await openAI.generateResponse(
             messages: messages,
             character: character,
             relationshipStatus: relationshipStatus
@@ -113,13 +117,14 @@ class CharacterChatService {
             relationshipChange: relationshipChange
         )
         
-        // Determine if we should generate an image
+        // Determine if we should generate image
         let shouldGenerateImage = context.qualifiesForImageGeneration
         
         // Create response message
         var responseMessage = ChatMessage(
             id: UUID().uuidString,
             text: responseText,
+            japaneseContent: japaneseContent,
             sender: .character,
             timestamp: Date(),
             sequence: nextSequence + 1,
@@ -144,6 +149,22 @@ class CharacterChatService {
             try await group.waitForAll()
         }
         
+        // Generate audio in background
+        Task {
+            do {
+                try await generateAndSaveAudio(for: responseMessage)
+                
+                // Notify that audio is ready
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("MessageAudioReady"),
+                    object: nil,
+                    userInfo: ["messageId": responseMessage.id]
+                )
+            } catch {
+                print("❌ CharacterChatService - Failed to generate audio: \(error)")
+            }
+        }
+        
         // Generate image if needed
         if shouldGenerateImage {
             Task {
@@ -163,7 +184,6 @@ class CharacterChatService {
                     responseMessage.ephemeralImage = image
                     try StableDiffusionService.shared.saveImageLocally(image, messageId: responseMessage.id, character: character)
                     responseMessage.imageGenerationStatus = .completed
-                    try await saveChatMessage(responseMessage, characterId: character.id)
                     
                     // Notify that a new image has been added to the gallery
                     NotificationCenter.default.post(
@@ -184,7 +204,6 @@ class CharacterChatService {
                     
                     // Update status to failed
                     responseMessage.imageGenerationStatus = .failed(error)
-                    try? await saveChatMessage(responseMessage, characterId: character.id)
                     
                     // Update cache
                     if var cachedMessages = messageCache[chatId],
@@ -204,55 +223,94 @@ class CharacterChatService {
     /// - Parameters:
     ///   - character: The character to load history for
     ///   - limit: Maximum number of messages to load
+    ///   - beforeSequence: Optional sequence number before which messages should be loaded
     /// - Returns: Array of chat messages
     func loadChatHistory(
         for character: GameCharacter,
-        limit: Int = 50
+        limit: Int = 50,
+        beforeSequence: Int? = nil
     ) async throws -> [ChatMessage] {
         print("📱 CharacterChatService - Loading chat history for character: \(character.name)")
         
         let chatId = getChatId(for: character)
         
-        // Check cache first
-        if let cached = messageCache[chatId] {
+        // Only use cache for initial load
+        if beforeSequence == nil, let cached = messageCache[chatId] {
             print("📱 CharacterChatService - Returning cached messages")
             return cached
         }
         
         // Load from Firestore
         let userId = AuthService.shared.currentUserId ?? ""
-        let snapshot = try await db.collection("chats")
+        var query = db.collection("chats")
             .document(chatId)
             .collection("messages")
-            .order(by: "sequence", descending: false)  // Order by sequence instead of timestamp
+            .order(by: "sequence", descending: true)  // Get newest messages first
             .limit(to: limit)
-            .getDocuments()
         
-        let messages = snapshot.documents.compactMap { document -> ChatMessage? in
-            guard let id = document.data()["id"] as? String,
-                  let text = document.data()["text"] as? String,
-                  let senderRaw = document.data()["sender"] as? String,
-                  let timestamp = document.data()["timestamp"] as? Timestamp,
-                  let sequence = document.data()["sequence"] as? Int else {
-                return nil
-            }
-            
-            let sender: MessageSender = senderRaw == "user" ? .user : .character
-            
-            return ChatMessage(
-                id: id,
-                text: text,
-                sender: sender,
-                timestamp: timestamp.dateValue(),
-                sequence: sequence
-            )
+        // If we have a sequence number, load messages before it
+        if let beforeSequence = beforeSequence {
+            query = query.whereField("sequence", isLessThan: beforeSequence)
         }
         
-        // Update cache
-        messageCache[chatId] = messages
+        let snapshot = try await query.getDocuments()
         
-        print("📱 CharacterChatService - Loaded \(messages.count) messages")
-        return messages
+        let messages = try await withThrowingTaskGroup(of: ChatMessage?.self) { group in
+            for document in snapshot.documents {
+                group.addTask {
+                    guard let id = document.data()["id"] as? String,
+                          let text = document.data()["text"] as? String,
+                          let senderRaw = document.data()["sender"] as? String,
+                          let timestamp = document.data()["timestamp"] as? Timestamp,
+                          let sequence = document.data()["sequence"] as? Int else {
+                        return nil
+                    }
+                    
+                    let sender: MessageSender = senderRaw == "user" ? .user : .character
+                    
+                    // Check for audio file existence if it's a character message
+                    var audioAvailable = false
+                    if sender == .character {
+                        do {
+                            let audioURL = try StableDiffusionService.shared.getAudioStorageURL(for: character)
+                                .appendingPathComponent("\(id).mp3")
+                            audioAvailable = FileManager.default.fileExists(atPath: audioURL.path)
+                        } catch {
+                            print("❌ CharacterChatService - Error checking audio file: \(error)")
+                        }
+                    }
+                    
+                    return ChatMessage(
+                        id: id,
+                        text: text,
+                        sender: sender,
+                        timestamp: timestamp.dateValue(),
+                        sequence: sequence,
+                        character: sender == .character ? character : nil,
+                        audioAvailable: audioAvailable
+                    )
+                }
+            }
+            
+            var loadedMessages: [ChatMessage] = []
+            for try await message in group {
+                if let message = message {
+                    loadedMessages.append(message)
+                }
+            }
+            return loadedMessages
+        }
+        
+        // Sort messages in ascending order for display
+        let sortedMessages = messages.sorted { $0.sequence < $1.sequence }
+        
+        // Only update cache for initial load
+        if beforeSequence == nil {
+            messageCache[chatId] = sortedMessages
+        }
+        
+        print("📱 CharacterChatService - Loaded \(sortedMessages.count) messages")
+        return sortedMessages
     }
     
     /// Gets the current relationship status between a user and character
@@ -342,6 +400,40 @@ class CharacterChatService {
         }
     }
     
+    // MARK: - Audio Generation
+    
+    /// Generates and saves audio for a message
+    /// - Parameter message: The message to generate audio for
+    /// - Throws: ChatError if generation fails
+    private func generateAndSaveAudio(for message: ChatMessage) async throws {
+        print("📱 CharacterChatService - Generating audio for message: \(message.id)")
+        
+        guard message.sender == .character,
+              let character = message.character,
+              let japaneseContent = message.japaneseContent else {
+            print("❌ CharacterChatService - Invalid message for audio generation")
+            throw ChatError.audioGenerationFailed("Invalid message for audio generation")
+        }
+        
+        do {
+            // Generate voice clip
+            _ = try await fishAudio.generateVoiceClip(
+                text: japaneseContent,
+                messageId: message.id,
+                character: character
+            )
+            
+            print("📱 CharacterChatService - Successfully generated audio for message: \(message.id)")
+            
+        } catch let error as FishAudioService.AudioError {
+            print("❌ CharacterChatService - Audio generation failed: \(error)")
+            throw ChatError.audioGenerationFailed(error.localizedDescription)
+        } catch {
+            print("❌ CharacterChatService - Unexpected error during audio generation: \(error)")
+            throw ChatError.audioGenerationFailed(error.localizedDescription)
+        }
+    }
+    
     // MARK: - Private Methods
     
     /// Saves a chat message to Firestore
@@ -354,6 +446,7 @@ class CharacterChatService {
         var messageData: [String: Any] = [
             "id": message.id,
             "text": message.text,
+            "japaneseContent": message.japaneseContent ?? "",
             "sender": message.sender == .user ? "user" : "character",
             "timestamp": FieldValue.serverTimestamp(),
             "sequence": message.sequence,

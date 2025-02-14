@@ -6,6 +6,7 @@ class ChatBubbleCell: UICollectionViewCell {
     
     // MARK: - Properties
     
+    private var message: ChatMessage?
     private var loadingSpinner: UIActivityIndicatorView?
     private var errorIcon: UIImageView?
     
@@ -35,6 +36,13 @@ class ChatBubbleCell: UICollectionViewCell {
         return imageView
     }()
     
+    private lazy var audioButton: AudioButton = {
+        let button = AudioButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isHidden = true
+        return button
+    }()
+    
     // MARK: - Initialization
     
     override init(frame: CGRect) {
@@ -50,6 +58,7 @@ class ChatBubbleCell: UICollectionViewCell {
         contentView.addSubview(avatarImageView)
         contentView.addSubview(bubbleView)
         bubbleView.addSubview(messageLabel)
+        contentView.addSubview(audioButton)
         
         NSLayoutConstraint.activate([
             avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
@@ -65,15 +74,38 @@ class ChatBubbleCell: UICollectionViewCell {
             messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 8),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8)
+            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8),
+            
+            audioButton.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 4),
+            audioButton.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
+            audioButton.widthAnchor.constraint(equalToConstant: 32),
+            audioButton.heightAnchor.constraint(equalToConstant: 32)
         ])
     }
     
     // MARK: - Configuration
     
     func configure(with message: ChatMessage, profileImageURL: String? = nil) {
+        self.message = message
+        
         // Set text
         messageLabel.text = message.text
+        
+        // Configure audio button visibility based on message properties
+        audioButton.isHidden = message.sender == .user || !message.audioAvailable
+        if !audioButton.isHidden {
+            audioButton.addTarget(self, action: #selector(handleAudioButtonTap), for: .touchUpInside)
+        }
+        
+        // Add observer for audio generation completion
+        if message.sender == .character {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAudioGenerated(_:)),
+                name: FishAudioService.audioGenerationCompleted,
+                object: nil
+            )
+        }
         
         // Style based on sender
         if message.sender == .user {
@@ -121,6 +153,49 @@ class ChatBubbleCell: UICollectionViewCell {
         }
     }
     
+    @objc private func handleAudioGenerated(_ notification: Notification) {
+        guard let messageId = notification.userInfo?["messageId"] as? String,
+              let message = self.message,
+              messageId == message.id else {
+            return
+        }
+        
+        // Update UI on main thread
+        DispatchQueue.main.async { [weak self] in
+            self?.message?.audioAvailable = true
+            self?.audioButton.isHidden = false
+            self?.audioButton.addTarget(self, action: #selector(self?.handleAudioButtonTap), for: .touchUpInside)
+        }
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func handleAudioButtonTap() {
+        guard let message = message,
+              let character = message.character else {
+            return
+        }
+        
+        do {
+            let audioURL = try StableDiffusionService.shared.getAudioStorageURL(for: character)
+                .appendingPathComponent("\(message.id).mp3")
+            audioButton.playAudio(url: audioURL)
+        } catch {
+            print("❌ ChatBubbleCell - Error playing audio: \(error)")
+        }
+    }
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        message = nil
+        messageLabel.text = nil
+        avatarImageView.image = nil
+        audioButton.stopAudio()
+        audioButton.isHidden = true
+        // Remove any observers
+        NotificationCenter.default.removeObserver(self)
+    }
+    
     // MARK: - Size Calculation
     
     static func size(for message: ChatMessage, width: CGFloat) -> CGSize {
@@ -128,6 +203,7 @@ class ChatBubbleCell: UICollectionViewCell {
         let avatarWidth: CGFloat = 40
         let horizontalMargins: CGFloat = 36 // 8 + 8 + 12 + 8
         let verticalMargins: CGFloat = 32 // 8 + 8 + 8 + 8
+        let audioButtonHeight: CGFloat = message.sender == .character ? 36 : 0 // Height for audio button if character message
         
         // Available width for text
         let maxTextWidth = width - avatarWidth - horizontalMargins
@@ -155,11 +231,8 @@ class ChatBubbleCell: UICollectionViewCell {
             }
         }
         
-        print("📱 ChatBubbleCell - Text: \(message.text)")
-        print("📱 ChatBubbleCell - Number of lines: \(lineCount)")
-        
         let textRect = layoutManager.usedRect(for: textContainer)
-        let height = ceil(textRect.height) + verticalMargins
+        let height = ceil(textRect.height) + verticalMargins + audioButtonHeight // might need to change this
         
         return CGSize(width: width, height: max(height, 56)) // Minimum height of 56
     }
