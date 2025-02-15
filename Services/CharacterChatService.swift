@@ -268,17 +268,8 @@ class CharacterChatService {
                     
                     let sender: MessageSender = senderRaw == "user" ? .user : .character
                     
-                    // Check for audio file existence if it's a character message
-                    var audioAvailable = false
-                    if sender == .character {
-                        do {
-                            let audioURL = try StableDiffusionService.shared.getAudioStorageURL(for: character)
-                                .appendingPathComponent("\(id).mp3")
-                            audioAvailable = FileManager.default.fileExists(atPath: audioURL.path)
-                        } catch {
-                            print("❌ CharacterChatService - Error checking audio file: \(error)")
-                        }
-                    }
+                    // Use the helper method to check audio availability
+                    let audioAvailable = sender == .character ? self.isAudioAvailable(messageId: id, character: character) : false
                     
                     return ChatMessage(
                         id: id,
@@ -520,5 +511,21 @@ class CharacterChatService {
             relationshipStatus: relationshipStatus,
             relationshipChange: relationshipChange
         )
+    }
+    
+    /// Checks if audio is available for a given message
+    /// - Parameters:
+    ///   - messageId: The ID of the message to check
+    ///   - character: The character associated with the message
+    /// - Returns: Whether audio is available for this message
+    func isAudioAvailable(messageId: String, character: GameCharacter) -> Bool {
+        do {
+            let audioURL = try StableDiffusionService.shared.getAudioStorageURL(for: character)
+                .appendingPathComponent("\(messageId).mp3")
+            return FileManager.default.fileExists(atPath: audioURL.path)
+        } catch {
+            print("❌ CharacterChatService - Error checking audio file: \(error)")
+            return false
+        }
     }
 } 

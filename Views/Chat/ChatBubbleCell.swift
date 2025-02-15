@@ -92,19 +92,23 @@ class ChatBubbleCell: UICollectionViewCell {
         messageLabel.text = message.text
         
         // Configure audio button visibility based on message properties
-        audioButton.isHidden = message.sender == .user || !message.audioAvailable
-        if !audioButton.isHidden {
-            audioButton.addTarget(self, action: #selector(handleAudioButtonTap), for: .touchUpInside)
-        }
-        
-        // Add observer for audio generation completion
-        if message.sender == .character {
+        if message.sender == .character, let character = message.character {
+            // Check current audio availability
+            let hasAudio = CharacterChatService.shared.isAudioAvailable(messageId: message.id, character: character)
+            audioButton.isHidden = !hasAudio
+            if hasAudio {
+                audioButton.addTarget(self, action: #selector(handleAudioButtonTap), for: .touchUpInside)
+            }
+            
+            // Add observer for audio generation completion
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(handleAudioGenerated(_:)),
                 name: FishAudioService.audioGenerationCompleted,
                 object: nil
             )
+        } else {
+            audioButton.isHidden = true
         }
         
         // Style based on sender
@@ -156,15 +160,20 @@ class ChatBubbleCell: UICollectionViewCell {
     @objc private func handleAudioGenerated(_ notification: Notification) {
         guard let messageId = notification.userInfo?["messageId"] as? String,
               let message = self.message,
+              let character = message.character,
               messageId == message.id else {
             return
         }
         
         // Update UI on main thread
         DispatchQueue.main.async { [weak self] in
-            self?.message?.audioAvailable = true
-            self?.audioButton.isHidden = false
-            self?.audioButton.addTarget(self, action: #selector(self?.handleAudioButtonTap), for: .touchUpInside)
+            // Check if audio is actually available
+            let hasAudio = CharacterChatService.shared.isAudioAvailable(messageId: messageId, character: character)
+            self?.message?.audioAvailable = hasAudio
+            self?.audioButton.isHidden = !hasAudio
+            if hasAudio {
+                self?.audioButton.addTarget(self, action: #selector(self?.handleAudioButtonTap), for: .touchUpInside)
+            }
         }
     }
     
