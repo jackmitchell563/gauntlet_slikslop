@@ -57,7 +57,12 @@ class OpenAIService {
     private let openAIEndpoint = "https://api.openai.com/v1/chat/completions"
     
     private var apiKey: String? {
-        ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
+        do {
+            return try Configuration.shared.openAIKey
+        } catch {
+            print("❌ OpenAIService - Failed to get API key: \(error)")
+            return nil
+        }
     }
     
     // MARK: - Types

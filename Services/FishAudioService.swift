@@ -26,9 +26,14 @@ class FishAudioService {
     
     // MARK: - Private Methods
     
-    /// Gets the API key from environment variables
+    /// Gets the API key from configuration
     private var apiKey: String? {
-        ProcessInfo.processInfo.environment["FISH_AUDIO_API_KEY"]
+        do {
+            return try Configuration.shared.fishAudioKey
+        } catch {
+            print("❌ FishAudioService - Failed to get API key: \(error)")
+            return nil
+        }
     }
     
     // MARK: - Types
@@ -148,7 +153,7 @@ class FishAudioService {
             
             // Save to disk
             try data.write(to: saveURL)
-            print("📱 FishAudioService - Saved voice clip to: \(saveURL.path)")
+            print("�� FishAudioService - Saved voice clip to: \(saveURL.path)")
             
             // Notify that audio is ready
             NotificationCenter.default.post(

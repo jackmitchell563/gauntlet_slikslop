@@ -17,14 +17,24 @@ class ReplicateService {
     /// CivitAI LoRA URL
     private var loraURL: String {
         let baseURL = "https://civitai.com/api/download/models/38884?type=Model&format=SafeTensor"
-        if let token = ProcessInfo.processInfo.environment["CIVITAI_API_TOKEN"] {
+        do {
+            let token = try Configuration.shared.civitAIToken
             return "\(baseURL)&token=\(token)"
+        } catch {
+            print("❌ ReplicateService - Failed to get CivitAI token: \(error)")
+            return baseURL
         }
-        return baseURL
     }
     
-    /// API token from environment variables
-    private var apiToken: String? { ProcessInfo.processInfo.environment["REPLICATE_API_TOKEN"] }
+    /// API token from configuration
+    private var apiToken: String? {
+        do {
+            return try Configuration.shared.replicateKey
+        } catch {
+            print("❌ ReplicateService - Failed to get API key: \(error)")
+            return nil
+        }
+    }
     
     /// URLSession for API requests
     private let session: URLSession = {
